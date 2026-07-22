@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "cage_isomer_builder"
+version = "0.1.0"
+description = "A python modules to automate the building of cages and functionalising it with isomers at different positions"
+authors = ["Dinga Wonanke, Maryam Nurhuda, Matthew Addicoat"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.urls]
+Repository = "https://github.com/bafgreat/cage_isomer_builder.git"
+Author-Github = "https://github.com/bafgreat"
+Author-Website = "https://www.dingawonanke.com"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+ase = "^3.27.0"
+stk = "^2026.1.4.0"
+mofstructure = "^0.1.8.6"
+scikit-learn = "^1.9.0"
+tblite = "^0.7.0"
+openmm = "^8.5.2"
+gulp-setup = "^0.1.9"
+spglib = "^2.5"
+pywindowx = {git = "https://github.com/JelfsMaterialsGroup/pywindow.git"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+

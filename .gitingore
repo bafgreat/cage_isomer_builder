@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.pyenv/
+.venv/
+venv/
+
+# Editor / OS
+.vscode
+.history
+.DS_Store
+
+.gitingore
+.history/
+.pyenv/
+poetry.lock
+.history
+.pyenv
