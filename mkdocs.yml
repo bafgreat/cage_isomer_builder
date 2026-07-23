@@ -9,6 +9,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  language: en
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -83,3 +84,12 @@ nav:
       - Geometry utilities: reference/geometry.md
       - Optimisation: reference/optimise.md
   - License: license.md
+
+extra:
+  social:
+    - icon: fontawesome/solid/globe
+      link: https://www.dingawonanke.com
+      name: Dinga Wonanke
+    - icon: fontawesome/brands/github
+      link: https://github.com/bafgreat
+      name: bafgreat on GitHub

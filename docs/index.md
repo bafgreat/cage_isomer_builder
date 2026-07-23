@@ -1,3 +1,10 @@
+---
+description: >-
+  Build, enumerate, and functionalise metal-organic cage and MOF isomers in
+  Python - 29 cage topologies, UFF4MOF/GFN-xTB optimisation, symmetry-unique
+  isomer enumeration, and host-guest docking.
+---
+
 # Cage Isomer Builder
 
 A comprehensive Python library for building, enumerating, and functionalising

@@ -1,3 +1,9 @@
+---
+description: >-
+  The 29 metal-organic cage topologies supported out of the box - node and
+  linker topicity, and which builder class to use for each.
+---
+
 # Topologies
 
 The `cage_isomer_builder.cage` classes can be used to build the 29 most

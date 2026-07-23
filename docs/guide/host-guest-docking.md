@@ -1,3 +1,10 @@
+---
+description: >-
+  Dock guest molecules into a metal-organic cage cavity in Python via
+  Random Sequential Adsorption, including mixed-guest systems and
+  maximum-capacity checks.
+---
+
 # Host-guest docking
 
 Host-guest complexes can be generated to study how isomerisation affects

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bafgreat.github.io/cage_isomer_builder/sitemap.xml
