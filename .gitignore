@@ -28,3 +28,4 @@ poetry.lock
 .history
 .pyenv
 examples
+dist/

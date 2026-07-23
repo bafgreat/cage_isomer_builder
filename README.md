@@ -1,4 +1,4 @@
-# Framework Isomer Builder
+# Cage Isomer Builder
 
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-1b263b)](https://bafgreat.github.io/cage_isomer_builder/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-415a77)](LICENSE)

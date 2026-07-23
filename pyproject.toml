@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cage_isomer_builder"
-version = "0.1.0"
+version = "0.1.1"
 description = "A python modules to automate the building of cages and functionalising it with isomers at different positions"
 authors = ["Dinga Wonanke, Maryam Nurhuda, Matthew Addicoat"]
 license = "MIT"
@@ -23,8 +23,8 @@ tblite = "^0.7.0"
 openmm = "^8.5.2"
 gulp-setup = "^0.1.9"
 spglib = "^2.5"
-pywindowx = {git = "https://github.com/JelfsMaterialsGroup/pywindow.git"}
 pytest = "^9.1.1"
+pywindow = "^0.0.3"
 
 [tool.poetry.group.docs]
 optional = true
@@ -33,6 +33,7 @@ optional = true
 mkdocs = "^1.6"
 mkdocs-material = "^9.6"
 mkdocstrings = {extras = ["python"], version = "^0.27"}
+
 
 
 [tool.pytest.ini_options]
