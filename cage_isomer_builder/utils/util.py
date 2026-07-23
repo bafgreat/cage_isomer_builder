@@ -134,16 +134,19 @@ def count_unique_isomers(transformation_library,
 
     Returns
     -------
-    n_unique_isomers : float
-        Number of symmetry-unique isomers, computed as the Burnside average.
-        Should be a whole number in practice; returned as float due to
-        the division by the number of symmetry operations.
+    n_unique_isomers : int
+        Number of symmetry-unique isomers, computed as the Burnside average
+        - guaranteed a whole number for a genuine group action, so this
+        divides exactly rather than rounding (see Raises).
 
     Raises
     ------
     ValueError
         If n_linkers is large enough that the 2**n_linkers bitmask DP
-        table becomes impractical (limit: 24, i.e. ~16.7M entries).
+        table becomes impractical (limit: 24, i.e. ~16.7M entries), or if
+        the Burnside average doesn't come out exact - the latter means
+        transformation_library isn't actually a closed symmetry group over
+        these FG slots (a real bug upstream, not a rounding nuisance).
     """
     if n_linkers > 24:
         raise ValueError(
@@ -165,7 +168,15 @@ def count_unique_isomers(transformation_library,
         )
 
     n_symmetry_ops = len(transformation_library) + 1  # +1 for identity
-    return sum(fixed_colorings) / n_symmetry_ops
+    total = sum(fixed_colorings)
+    n_unique, remainder = divmod(total, n_symmetry_ops)
+    if remainder != 0:
+        raise ValueError(
+            f"Burnside average is not a whole number ({total}/{n_symmetry_ops}) "
+            "- transformation_library does not form a closed symmetry group "
+            "over these FG slots."
+        )
+    return n_unique
 
 
 def fg2fg_distance_count(ase_atom,

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cage_isomer_builder"
-version = "0.1.1"
+version = "0.1.2"
 description = "A python modules to automate the building of cages and functionalising it with isomers at different positions"
 authors = ["Dinga Wonanke, Maryam Nurhuda, Matthew Addicoat"]
 license = "MIT"

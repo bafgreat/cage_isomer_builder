@@ -728,7 +728,7 @@ class CageStatistics:
         Number of ditopic linkers in the cage.
     n_fg_slots : int
         Total number of functional group anchor slots (n_linkers × 4).
-    n_unique_isomers : float
+    n_unique_isomers : int
         Number of symmetry-unique isomers (Burnside's lemma result).
     distance_keys : list of float
         Sorted unique inter-linker FG-to-FG distances in Angstroms.
@@ -748,7 +748,7 @@ class CageStatistics:
 
     n_linkers: int
     n_fg_slots: int
-    n_unique_isomers: float
+    n_unique_isomers: int
     distance_keys: list
     total_fg_pairs: list
     endo_endo_pairs: list
@@ -1831,14 +1831,14 @@ class CageBuilder(ABC):
 
         return unique_isomers
 
-    def count_unique_isomers_burnside(self) -> float:
+    def count_unique_isomers_burnside(self) -> int:
         """
         Count unique isomers via Burnside's lemma without full enumeration.
         Useful for large cages where iterating over 4^n_linkers is impractical.
 
         Returns
         -------
-        n_unique : float
+        n_unique : int
         """
         if self._fg_anchors is None:
             self.functionalise()
