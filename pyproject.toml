@@ -5,9 +5,11 @@ description = "A python modules to automate the building of cages and functional
 authors = ["Dinga Wonanke, Maryam Nurhuda, Matthew Addicoat"]
 license = "MIT"
 readme = "README.md"
+homepage = "https://github.com/bafgreat/cage_isomer_builder"
+repository = "https://github.com/bafgreat/cage_isomer_builder"
+documentation = "https://bafgreat.github.io/cage_isomer_builder/"
 
 [tool.poetry.urls]
-Repository = "https://github.com/bafgreat/cage_isomer_builder.git"
 Author-Github = "https://github.com/bafgreat"
 Author-Website = "https://www.dingawonanke.com"
 
@@ -39,9 +41,6 @@ markers = [
     "slow: builds/optimises a full cage end-to-end (minutes, not seconds) - run explicitly with `pytest -m slow`",
 ]
 filterwarnings = [
-    # Harmless SWIG-generated-bindings noise from a third-party C extension
-    # (pulled in via pywindowx/OpenBabel), raised at import time - not from
-    # our own code, and not actionable here.
     "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
 ]
 
