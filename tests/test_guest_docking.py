@@ -39,7 +39,7 @@ def test_max_guests_in_host_finds_a_real_capacity() -> None:
     host, guest = _host_and_guest()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        n_max = max_guests_in_host(host, guest, seed=0)
+        n_max = max_guests_in_host(host, guest)
     assert n_max > 0, "expected at least one methane to fit inside C60"
     print(f"test_max_guests_in_host_finds_a_real_capacity passed: n_max={n_max}")
 
