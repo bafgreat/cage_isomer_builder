@@ -2,13 +2,14 @@
 """
 Standalone verification for the UFF4MOF/OpenMM optimiser backend.
 
-Run from the repository root:
+Run from the repository root, either directly:
 
     python3 tests/test_uff4mof_backend.py
 
-Prints PASS/FAIL per check; exits nonzero if any check fails. There is no
-pytest infrastructure in this repo (see tests/test_cage.py), so this follows
-the same plain-script convention.
+which prints PASS/FAIL per check and exits nonzero if any fails; or under
+pytest, where each test_* function is collected normally. test_full_cage_smoke
+is marked @pytest.mark.slow (builds/optimises a real cage) and is skipped by
+default - run it explicitly with `pytest -m slow`.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from ase import Atoms
 from ase.optimize import BFGS
 from gulp_setup import mmanalysis
@@ -62,9 +64,8 @@ def section(title: str) -> None:
 # 1. Parameter-module unit checks (no ASE/OpenMM system construction)
 # ---------------------------------------------------------------------------
 
-def test_parameter_module() -> dict[str, UFFAtomParams]:
+def test_parameter_module(db: dict[str, UFFAtomParams]) -> None:
     section("Parameter database + combining rules")
-    db = load_uff4mof_db()
     check("db loads with many entries", len(db) > 100, f"{len(db)} entries")
     check("C_3 has correct r1", math.isclose(db["C_3"].r1, 0.757))
     check("Zr3+4 present", "Zr3+4" in db)
@@ -143,8 +144,6 @@ def test_parameter_module() -> dict[str, UFFAtomParams]:
     check("enumerate_bonds count", len(enumerate_bonds(bm)) == 3)
     check("enumerate_angles count", len(enumerate_angles(bm)) == 2)
     check("enumerate_torsions count", len(enumerate_torsions(bm)) == 1)
-
-    return db
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +249,7 @@ def test_synthetic_system_energy(db: dict) -> None:
 # 3. Full-cage smoke test
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_full_cage_smoke(db: dict, tmp_dir: Path) -> None:
     section("Full-cage build + optimise smoke test")
     if not NODE_FILE.exists() or not LINKER_FILE.exists():
@@ -319,7 +319,8 @@ def test_full_cage_smoke(db: dict, tmp_dir: Path) -> None:
 def main() -> int:
     import tempfile
 
-    db = test_parameter_module()
+    db = load_uff4mof_db()
+    test_parameter_module(db)
     test_synthetic_system_energy(db)
     with tempfile.TemporaryDirectory() as tmp:
         test_full_cage_smoke(db, Path(tmp))

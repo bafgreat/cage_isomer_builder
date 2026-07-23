@@ -267,7 +267,7 @@ def resolve_fragment_twist(host_system, sub_fragment, host_x, sub_neigh,
         the rest of the fragment rotates around.
     tolerance : float
         Fraction of the summed covalent radii used as the clash threshold
-        (default 0.75, matching ``_atoms_overlap`` elsewhere in this package).
+        (default 0.75).
     n_angles : int
         Number of evenly-spaced trial angles in [0, 360) (default 24, i.e.
         every 15 degrees).

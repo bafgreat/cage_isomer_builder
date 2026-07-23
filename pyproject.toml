@@ -22,7 +22,28 @@ openmm = "^8.5.2"
 gulp-setup = "^0.1.9"
 spglib = "^2.5"
 pywindowx = {git = "https://github.com/JelfsMaterialsGroup/pywindow.git"}
+pytest = "^9.1.1"
 
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1.6"
+mkdocs-material = "^9.6"
+mkdocstrings = {extras = ["python"], version = "^0.27"}
+
+
+[tool.pytest.ini_options]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: builds/optimises a full cage end-to-end (minutes, not seconds) - run explicitly with `pytest -m slow`",
+]
+filterwarnings = [
+    # Harmless SWIG-generated-bindings noise from a third-party C extension
+    # (pulled in via pywindowx/OpenBabel), raised at import time - not from
+    # our own code, and not actionable here.
+    "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]
 
 [build-system]
 requires = ["poetry-core"]

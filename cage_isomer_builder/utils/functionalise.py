@@ -2,9 +2,11 @@
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
+import math
 import random
 import warnings
 from collections import namedtuple
+from itertools import combinations
 
 import numpy as np
 from ase import Atoms
@@ -28,12 +30,14 @@ HostGuestComplex = namedtuple(
 )
 
 
-def _atoms_overlap(pos_a, num_a, pos_b, num_b, tolerance=0.75):
+def _atoms_overlap(pos_a, radii_a, pos_b, num_b, tolerance):
     """
     Return True if any atom pair between set A and set B is closer than
-    tolerance * (r_a + r_b), using covalent radii.
+    tolerance * (r_a + r_b), using covalent radii. Takes A's radii
+    precomputed rather than its atomic numbers, since callers evaluate
+    this against the same (often large) set A many times per accepted
+    placement and shouldn't redo that lookup on every call.
     """
-    radii_a = covalent_radii[num_a]
     radii_b = covalent_radii[num_b]
     for pb, rb in zip(pos_b, radii_b):
         dists = np.linalg.norm(pos_a - pb, axis=1)
@@ -156,16 +160,56 @@ def _next_type_index(counts, ratios):
     """
     Pick the guest type most under-represented relative to its target
     ratio so far (a smooth weighted round-robin) - lets guest types be
-    mixed by ratio without knowing the eventual total count in advance,
-    which is required for max_guests_in_host (the total isn't known
-    until placement itself stops succeeding). With one guest type this
-    always returns 0.
+    mixed by ratio without knowing the eventual total count in advance.
+    With one guest type this always returns 0.
     """
     weights = np.asarray(ratios, dtype=float)
     weights = weights / weights.sum()
     counts_arr = np.asarray(counts, dtype=float)
     proportion_so_far = counts_arr / (counts_arr.sum() + 1.0)
     return int(np.argmax(weights - proportion_so_far))
+
+
+def _fibonacci_sphere_directions(n):
+    """
+    n points spread roughly evenly over the unit sphere (Fibonacci
+    spiral) - a cheap, fully deterministic way to cover direction space
+    without the clustering/gaps that n independent random draws can
+    produce by chance.
+    """
+    i = np.arange(n)
+    phi = np.arccos(1 - 2 * (i + 0.5) / n)
+    golden_angle = np.pi * (3 - np.sqrt(5))
+    theta = golden_angle * i
+    return np.stack([
+        np.sin(phi) * np.cos(theta),
+        np.sin(phi) * np.sin(theta),
+        np.cos(phi),
+    ], axis=1)
+
+
+def _axis_angle_matrix(axis, angle):
+    """Rotation matrix for a right-handed rotation of angle around axis (Rodrigues' formula)."""
+    axis = axis / np.linalg.norm(axis)
+    k0, k1, k2 = axis
+    K = np.array([[0, -k2, k1], [k2, 0, -k0], [-k1, k0, 0]])
+    return np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
+
+
+def _systematic_rotation_grid(n_axes=8, n_twists=3):
+    """
+    A fixed set of n_axes * n_twists candidate rotation matrices
+    (Fibonacci-sphere axes, evenly-spaced twist angle around each) used
+    to sweep orientation space at a single candidate position more
+    thoroughly, for the same budget, than that many independent random
+    rotations would - see _attempt_random_placement.
+    """
+    axes = _fibonacci_sphere_directions(n_axes)
+    twists = np.linspace(0, 2 * np.pi, n_twists, endpoint=False)
+    return [_axis_angle_matrix(axis, twist) for axis in axes for twist in twists]
+
+
+_ROTATION_GRID = _systematic_rotation_grid()
 
 
 def _attempt_random_placement(guest_template,
@@ -177,37 +221,115 @@ def _attempt_random_placement(guest_template,
                               max_attempts,
                               ):
     """
-    Try up to max_attempts random positions/orientations inside the
-    docking sphere for one copy of guest_template, rejecting any that
-    overlap an atom in existing_positions/existing_numbers (host atoms
-    plus every already-placed guest atom in this complex).
+    Position-conditioned search for one non-overlapping copy of
+    guest_template inside the docking sphere: try up to
+    ``max_attempts // len(_ROTATION_GRID)`` random positions, and at
+    each one that isn't provably hopeless, sweep the whole systematic
+    rotation grid (randomly reoriented as a rigid set, so results still
+    vary with the caller's seed) before moving on to the next position.
+
+    A position is provably hopeless - skipped before spending any
+    rotation attempts on it - when even the guest atom closest to its
+    own centre of mass (which some rotation can always point at any
+    given neighbour) can't clear the nearest existing atom at that
+    position. This mainly catches positions that land right on top of
+    an existing atom; it does not generally bound how tightly the guest
+    can pack, since most atoms in a guest sit well off-centre.
 
     Returns
     -------
     ase.Atoms or None
-        The accepted, positioned guest copy, or None if no
-        non-overlapping placement was found in max_attempts tries.
+        The accepted, positioned guest copy, or None if nothing in the
+        budget worked - the signal _build_guest_packing uses to stop
+        (RSA jamming).
     """
     guest_centred = guest_template.copy()
     guest_centred.translate(-guest_centred.get_center_of_mass())
+    guest_radii = covalent_radii[guest_centred.numbers]
+    guest_min_reach = float(np.min(
+        np.linalg.norm(guest_centred.positions, axis=1) + guest_radii
+    ))
+    existing_radii = covalent_radii[existing_numbers]
 
-    for _ in range(max_attempts):
+    n_position_tries = max(1, max_attempts // len(_ROTATION_GRID))
+    for _ in range(n_position_tries):
         point = np.random.uniform(-inner_radius, inner_radius, 3)
         if np.linalg.norm(point) > inner_radius:
             continue
         target = cage_com + point
 
-        g = guest_centred.copy()
-        g.positions = g.positions @ random_rotation_matrix().T
-        g.translate(target)
+        clearance = np.linalg.norm(existing_positions - target, axis=1) - existing_radii
+        if clearance.min() < overlap_tolerance * guest_min_reach:
+            continue  # no rotation can rescue this position
 
-        if _atoms_overlap(existing_positions, existing_numbers,
-                          g.positions, g.numbers, overlap_tolerance):
-            continue
+        base_rotation = random_rotation_matrix()
+        for grid_rotation in _ROTATION_GRID:
+            g = guest_centred.copy()
+            g.positions = g.positions @ (base_rotation @ grid_rotation).T
+            g.translate(target)
 
-        return g
+            if _atoms_overlap(existing_positions, existing_radii,
+                              g.positions, g.numbers, overlap_tolerance):
+                continue
+
+            return g
 
     return None
+
+
+def _build_guest_packing(host, guests, ratios, cage_com, inner_radius,
+                         overlap_tolerance, max_attempts):
+    """
+    Random Sequential Adsorption (RSA): repeatedly attempt a random
+    position/orientation for the next guest copy (type chosen by
+    _next_type_index) inside the docking sphere, accepting it only if it
+    doesn't overlap the host or any already-accepted copy (real per-atom
+    distances via _atoms_overlap, not a worst-case bounding sphere).
+    Stops as soon as one placement attempt exhausts max_attempts random
+    tries without success.
+
+    This is the same algorithm behind grand-canonical Monte-Carlo
+    insertion moves used to estimate gas/guest loading in porous
+    materials (zeolites, MOFs): fast, and typically reaches a "jamming
+    limit" of roughly 35-55% volume fraction for near-spherical guests.
+    A constrained-optimisation packer (e.g. PACKMOL, used to build MD
+    solvation boxes) reaches higher density instead - closer to random-
+    close-packing, ~60-70%+ - by starting from a rough guess and
+    iteratively displacing every body to minimise overlap, at the cost
+    of being far slower and considerably more involved to implement;
+    not used here since RSA already comfortably covers realistic
+    guest-loading counts at a small fraction of the runtime.
+
+    Because every accepted copy was checked against every earlier one,
+    the whole returned list is mutually non-overlapping - so is any
+    subset of it, with no further checking needed. That's what lets
+    place_guest_in_host build this once and hand out distinct random
+    subsets per complex.
+
+    Returns
+    -------
+    list of (ase.Atoms, int)
+        Each accepted guest copy and the index into guests it came from,
+        in acceptance order.
+    """
+    positions = host.positions.copy()
+    numbers = host.numbers.copy()
+    type_counts = [0] * len(guests)
+    accepted = []
+
+    while True:
+        type_idx = _next_type_index(type_counts, ratios)
+        placement = _attempt_random_placement(
+            guests[type_idx], cage_com, inner_radius,
+            positions, numbers, overlap_tolerance, max_attempts,
+        )
+        if placement is None:
+            return accepted
+
+        accepted.append((placement, type_idx))
+        type_counts[type_idx] += 1
+        positions = np.vstack([positions, placement.positions])
+        numbers = np.concatenate([numbers, placement.numbers])
 
 
 def _normalise_guests(guests, ratios):
@@ -227,25 +349,20 @@ def max_guests_in_host(host,
                        ratios=None,
                        max_attempts=1000,
                        overlap_tolerance=0.75,
-                       inner_radius_fraction=0.6,
+                       inner_radius_fraction=0.9,
                        seed=None,
                        ):
     """
-    Empirically determine how many guest copies fit inside host's cavity
-    without steric overlap, rather than estimating it from cavity/guest
-    volume - a closed-form packing formula is either optimistic or overly
-    conservative for anything but a spherical guest, whereas this reuses
-    the exact same rejection-sampled overlap check that actually builds
-    the complexes (see place_guest_in_host), so "fits" here means exactly
-    what it means there too.
-
-    Keeps placing guest copies (drawn from ``guests`` by ``ratios`` if
-    more than one type is given - see _next_type_index) until one fails
-    to find a non-overlapping position/orientation within max_attempts
-    tries, and returns how many were placed before that point. This is a
-    lower bound in practice, not a guaranteed global optimum (rejection
-    sampling can in principle miss a tight remaining gap), but converges
-    to the true packing limit as max_attempts grows.
+    Determine how many guest copies fit inside host's cavity at once via
+    Random Sequential Adsorption (see _build_guest_packing for the
+    algorithm and its jamming-limit/PACKMOL tradeoff), rather than
+    estimating it from cavity/guest volume - a closed-form packing
+    formula is either optimistic or overly conservative for anything but
+    a spherical guest. This reuses the exact same per-atom overlap check
+    used to actually build the complexes (see place_guest_in_host), so
+    "fits" here means exactly what it means there too. It's empirical/
+    stochastic (depends on seed and max_attempts), not a guaranteed
+    global optimum.
 
     Before any random sampling, this also checks whether each guest type
     can physically enter the cavity at all (see
@@ -265,25 +382,31 @@ def max_guests_in_host(host,
         (only meaningful with more than one entry in ``guests``).
         Defaults to an even split.
     max_attempts : int, default 1000
-        Random placement attempts before concluding capacity is reached.
+        Consecutive random-placement failures before concluding the
+        packing has jammed (capacity reached).
     overlap_tolerance : float, default 0.75
         Fraction of the sum of covalent radii used as the hard-core
-        exclusion distance.
-    inner_radius_fraction : float, default 0.6
+        exclusion distance between any two atoms (host-guest or
+        guest-guest). Lower allows closer contacts, denser packing;
+        1.0 means atoms may not get closer than touching (their
+        covalent-radius spheres just meet).
+    inner_radius_fraction : float, default 0.9
         Fraction of the docking sphere's radius to actually use - a
-        safety margin against sampling too close to the cavity wall.
-        The radius itself comes from pywindow's optimised intrinsic pore
-        diameter when an enclosed cavity can be found (real computed
-        geometry, not an approximation), falling back to the older mean-
-        atom-distance-from-centre-of-mass heuristic otherwise (e.g. for
-        an open, non-enclosing structure that isn't a real cage cavity).
+        small safety margin against sampling exactly at the cavity wall
+        (the real host-guest clearance is already enforced by
+        overlap_tolerance, so this only needs to be mild). The radius
+        itself comes from pywindow's optimised intrinsic pore diameter
+        when an enclosed cavity can be found (real computed geometry,
+        not an approximation), falling back to the older mean-atom-
+        distance-from-centre-of-mass heuristic otherwise (e.g. for an
+        open, non-enclosing structure that isn't a real cage cavity).
     seed : int, optional
         Seed the random search for a reproducible answer.
 
     Returns
     -------
     int
-        The maximum number of guest copies placed without overlap.
+        The number of guest copies RSA managed to place without overlap.
 
     Raises
     ------
@@ -298,24 +421,10 @@ def max_guests_in_host(host,
 
     cage_com, inner_radius, window_diameters = _host_pore_geometry(host, inner_radius_fraction)
     _check_guest_fits_windows(guests, window_diameters)
-    positions = host.positions.copy()
-    numbers = host.numbers.copy()
-    type_counts = [0] * len(guests)
-    n_placed = 0
-
-    while True:
-        type_idx = _next_type_index(type_counts, ratios)
-        placement = _attempt_random_placement(
-            guests[type_idx], cage_com, inner_radius,
-            positions, numbers, overlap_tolerance, max_attempts,
-        )
-        if placement is None:
-            return n_placed
-
-        n_placed += 1
-        type_counts[type_idx] += 1
-        positions = np.vstack([positions, placement.positions])
-        numbers = np.concatenate([numbers, placement.numbers])
+    packing = _build_guest_packing(
+        host, guests, ratios, cage_com, inner_radius, overlap_tolerance, max_attempts
+    )
+    return len(packing)
 
 
 def place_guest_in_host(host,
@@ -325,14 +434,14 @@ def place_guest_in_host(host,
                         ratios=None,
                         max_attempts=1000,
                         overlap_tolerance=0.75,
-                        inner_radius_fraction=0.6,
+                        inner_radius_fraction=0.9,
                         host_bond_matrix=None,
                         seed=None,
                         ):
     """
-    Quick stochastic docking: generate n_complexes host-guest structures
-    by randomly placing n_guests copies of one or more guest types inside
-    the cage interior.
+    RSA docking: generate n_complexes host-guest structures by placing
+    n_guests copies of one or more guest types from a single, near-
+    maximal Random Sequential Adsorption packing of the cage interior.
 
     Strategy
     --------
@@ -348,20 +457,23 @@ def place_guest_in_host(host,
        see _check_guest_fits_windows. This is a fast, necessary-but-not-
        sufficient check: passing it means entry is geometrically
        possible, not guaranteed.
-    3. For each complex, sample n_guests random positions inside the
-       docking sphere (rejection sampling) and apply a uniformly random
-       rotation to each guest - see _attempt_random_placement.
-    4. Accept a placement only if the guest does not overlap with any
-       host atom or any previously placed guest in the same complex.
-    5. If n_guests exceeds what actually fits (placement fails
-       max_attempts times in a row for the next copy), stop there rather
-       than raising - a complex with fewer guests than requested is
-       returned, with a warning, instead of an error. Use
-       max_guests_in_host beforehand to know the real capacity, or to
-       avoid the warning by passing an n_guests you know fits.
-
-    Each of the n_complexes configurations uses an independent random
-    draw, so positions are not repeated across complexes.
+    3. Build one packing of the whole cavity via Random Sequential
+       Adsorption (see _build_guest_packing): repeatedly try a random
+       position/orientation, accept it if it doesn't overlap the host or
+       any already-accepted copy (real per-atom distances - see
+       _atoms_overlap), until one placement attempt exhausts
+       max_attempts random tries. This packing, and its size, are shared
+       with max_guests_in_host. Because every accepted copy was checked
+       against every earlier one, any subset of the packing is itself a
+       valid simultaneous placement, with no further checking needed.
+    4. n_guests is capped to the packing's size if it's smaller (warning
+       issued). Each of the n_complexes configurations then draws a
+       distinct random n_guests-copy subset of the packing (no two
+       complexes get the same combination - see point 5), preserving
+       each copy's already-accepted position and orientation as-is.
+    5. If n_complexes exceeds the number of distinct n_guests-copy
+       combinations available in the packing, it's capped to that many
+       (warning issued) rather than repeating a combination.
 
     Parameters
     ----------
@@ -381,41 +493,51 @@ def place_guest_in_host(host,
         Relative proportion of guest copies to give each entry in
         ``guests`` (only meaningful with more than one guest type).
         Defaults to an even split.
-    max_attempts : int
-        Maximum random placement attempts per guest copy before giving
-        up on it (default 1000).
-    overlap_tolerance : float
+    max_attempts : int, default 1000
+        Consecutive random-placement failures before concluding the RSA
+        packing has jammed (capacity reached) - see point 3 above.
+    overlap_tolerance : float, default 0.75
         Fraction of the sum of covalent radii used as the hard-core
-        exclusion distance (default 0.75). Lower values allow closer contacts.
-    inner_radius_fraction : float
-        Fraction of the docking sphere's radius to actually use (default
-        0.6) - a safety margin against sampling too close to the cavity
-        wall. Increase toward 1.0 to sample closer to it. The radius
-        itself is pywindow's optimised pore diameter when an enclosed
-        cavity is found, falling back to the older mean-atom-distance
-        heuristic otherwise - see _host_pore_geometry.
+        exclusion distance between any two atoms (host-guest or
+        guest-guest). Lower allows closer contacts, denser packing;
+        1.0 means atoms may not get closer than touching.
+    inner_radius_fraction : float, default 0.9
+        Fraction of the docking sphere's radius to actually use - a
+        small safety margin against sampling exactly at the cavity wall
+        (the real host-guest clearance is already enforced by
+        overlap_tolerance, so this only needs to be mild - see
+        _host_pore_geometry). Reducing it shrinks the usable cavity
+        volume and can noticeably lower how many guests fit.
     host_bond_matrix : np.ndarray, shape (len(host), len(host)), optional
-        The host's own bond-order matrix (e.g. from
-        CageBuilder.get_bond_matrix()). When given, each returned complex
-        is a HostGuestComplex carrying the merged bond matrix - the
-        host's real bonds plus each placed guest copy's own internal
-        bonds (perceived on that isolated guest alone via bonded_pairs,
-        never on the merged host+guest structure - see Notes). No bond
-        is ever added between host and guest, or between two guest
-        copies, since encapsulation is non-covalent. Pass this matrix
-        straight to write_run/write_gulp_gin-style writers instead of
-        letting them re-perceive bonds from geometry on the whole
-        complex, which risks a spurious "bond" wherever a guest happens
-        to sit close to the host wall or to another guest copy.
+        The host's own bond-order matrix. When omitted (the default), it
+        is derived automatically from the host's geometry via
+        gulp_setup.mmanalysis.analyze_mm - the same UFF4MOF atom-typing
+        backend used elsewhere in this package, so metal-ligand
+        coordination contacts get their usual fractional bond order
+        instead of being missed by a plain covalent-radius cutoff. Pass
+        an explicit matrix (e.g. CageBuilder.get_bond_matrix(), taken
+        directly from the STK construction) to skip this and use
+        known-exact bonds instead. Either way, every returned complex is
+        a HostGuestComplex carrying the merged bond matrix - the host's
+        bonds plus each placed guest copy's own internal bonds
+        (perceived on that isolated guest alone via bonded_pairs, never
+        on the merged host+guest structure - see Notes). No bond is ever
+        added between host and guest, or between two guest copies, since
+        encapsulation is non-covalent. Pass this matrix straight to
+        write_run/write_gulp_gin-style writers instead of letting them
+        re-perceive bonds from geometry on the whole complex, which
+        risks a spurious "bond" wherever a guest happens to sit close to
+        the host wall or to another guest copy.
     seed : int, optional
-        Seed the random search for reproducible output.
+        Seed both the RSA packing construction (point 3) and the random
+        draw of which subset of it each complex gets (point 4), for
+        reproducible output.
 
     Returns
     -------
-    complexes : list of ase.Atoms, or list of HostGuestComplex
-        n_complexes structures. Plain ase.Atoms if host_bond_matrix is
-        None (unchanged from before); HostGuestComplex
-        (atoms, bond_matrix, guest_atom_indices, guest_labels) if given -
+    complexes : list of HostGuestComplex
+        n_complexes structures, each a HostGuestComplex
+        (atoms, bond_matrix, guest_atom_indices, guest_labels) -
         guest_labels is the index into ``guests`` for each placed copy,
         in placement order, so a mix's composition can be recovered.
 
@@ -437,52 +559,74 @@ def place_guest_in_host(host,
     final merged structure, where a guest sitting near the host wall (or
     near another guest) could otherwise be misread as covalently bonded
     to it.
+
+    See _build_guest_packing for the RSA algorithm itself and its
+    tradeoff against a constrained-optimisation packer like PACKMOL.
     """
     guests, ratios = _normalise_guests(guests, ratios)
     if seed is not None:
         np.random.seed(seed)
+        random.seed(seed)
+
+    if host_bond_matrix is None:
+        from gulp_setup.mmanalysis import analyze_mm
+        host_bond_matrix, _ = analyze_mm(host)
+    n_host = len(host)
 
     cage_com, inner_radius, window_diameters = _host_pore_geometry(host, inner_radius_fraction)
     _check_guest_fits_windows(guests, window_diameters)
-    track_bonds = host_bond_matrix is not None
-    n_host = len(host)
+    packing = _build_guest_packing(
+        host, guests, ratios, cage_com, inner_radius, overlap_tolerance, max_attempts
+    )
+
+    if n_guests > len(packing):
+        warnings.warn(
+            f"Requested n_guests={n_guests} but RSA only packed "
+            f"{len(packing)} guest copies into the cavity before jamming "
+            f"(overlap_tolerance={overlap_tolerance}, max_attempts="
+            f"{max_attempts}) - capping to {len(packing)}. Call "
+            "max_guests_in_host() beforehand to know the real capacity, "
+            "or raise max_attempts / lower overlap_tolerance for a denser "
+            "search."
+        )
+    n_guests_actual = min(n_guests, len(packing))
+
+    total_combos = math.comb(len(packing), n_guests_actual)
+    if n_complexes > total_combos:
+        warnings.warn(
+            f"Requested n_complexes={n_complexes} but only {total_combos} "
+            f"distinct {n_guests_actual}-guest combinations exist in the "
+            f"{len(packing)}-guest packing - capping to {total_combos}."
+        )
+    n_complexes_actual = min(n_complexes, total_combos)
+
+    # Enumerate-and-shuffle when the combo space is small or a large
+    # fraction of it is requested (rejection sampling would collide too
+    # often near the top of that range); rejection-sample otherwise,
+    # since collisions are then rare enough to stay fast.
+    if total_combos <= 5000 or n_complexes_actual > total_combos * 0.1:
+        all_combos = list(combinations(range(len(packing)), n_guests_actual))
+        random.shuffle(all_combos)
+        chosen_combos = all_combos[:n_complexes_actual]
+    else:
+        seen = set()
+        chosen_combos = []
+        while len(chosen_combos) < n_complexes_actual:
+            combo = tuple(sorted(
+                np.random.choice(len(packing), size=n_guests_actual, replace=False)
+            ))
+            if combo in seen:
+                continue
+            seen.add(combo)
+            chosen_combos.append(combo)
 
     complexes = []
-    for i_complex in range(n_complexes):
-        positions = host.positions.copy()
-        numbers = host.numbers.copy()
-        placed = []  # list of (ase.Atoms copy, type_index)
-        type_counts = [0] * len(guests)
-
-        for _ in range(n_guests):
-            type_idx = _next_type_index(type_counts, ratios)
-            placement = _attempt_random_placement(
-                guests[type_idx], cage_com, inner_radius,
-                positions, numbers, overlap_tolerance, max_attempts,
-            )
-            if placement is None:
-                break
-
-            placed.append((placement, type_idx))
-            type_counts[type_idx] += 1
-            positions = np.vstack([positions, placement.positions])
-            numbers = np.concatenate([numbers, placement.numbers])
-
-        if len(placed) < n_guests:
-            warnings.warn(
-                f"Complex {i_complex + 1}: only {len(placed)}/{n_guests} guests "
-                f"fit without overlap (each capped at {max_attempts} placement "
-                f"attempts) - returning the {len(placed)} that fit. Call "
-                f"max_guests_in_host() beforehand to know the real capacity."
-            )
+    for combo in chosen_combos:
+        placed = [packing[idx] for idx in combo]  # list of (ase.Atoms copy, type_index)
 
         combined = host.copy()
         for g, _ in placed:
             combined = combined + g
-
-        if not track_bonds:
-            complexes.append(combined)
-            continue
 
         n_total = len(combined)
         bond_matrix = np.zeros((n_total, n_total))
@@ -515,18 +659,18 @@ def functionalise_host(host_system,
                        ratios=None,
                        max_attempts=1000,
                        overlap_tolerance=0.75,
-                       inner_radius_fraction=0.6,
+                       inner_radius_fraction=0.9,
                        seed=None,
                        ):
     """
     Functionalise a fragment onto a host cage and optionally dock one or
-    more guest molecules at random positions inside the cage interior.
+    more guest molecules inside the cage interior via RSA packing.
 
     The sub_fragment is aligned to the X dummy atom site in the host,
     translated so its bonding atom sits at the X position, and merged into
     the host (removing dummy atoms from both). If guests are given,
     place_guest_in_host is called to produce n_complexes independent
-    host–guest configurations via stochastic docking.
+    host–guest configurations via Random Sequential Adsorption docking.
 
     Parameters
     ----------
@@ -554,32 +698,35 @@ def functionalise_host(host_system,
     ratios : sequence of float, optional
         Relative proportion of guest copies per entry in ``guests``
         (only meaningful with more than one guest type).
-    max_attempts : int
-        Maximum random placement attempts per guest copy (default 1000).
-    overlap_tolerance : float
-        Fraction of sum-of-covalent-radii used as hard-core exclusion (default 0.75).
+    max_attempts : int, default 1000
+        Consecutive random-placement failures before concluding the RSA
+        packing has jammed - see place_guest_in_host.
+    overlap_tolerance : float, default 0.75
+        Fraction of the sum of covalent radii used as the hard-core
+        exclusion distance - see place_guest_in_host.
     inner_radius_fraction : float
-        Fraction of mean cage radius defining the docking sphere (default 0.6).
+        Fraction of the docking sphere's radius to actually use (default 0.9).
     seed : int, optional
-        Seed the random search for reproducible output.
+        Seed the RSA packing and per-complex subset draw - see place_guest_in_host.
 
     Returns
     -------
-    result : ase.Atoms or list of ase.Atoms
+    result : ase.Atoms, HostGuestComplex, or list of HostGuestComplex
         If guests is None: a single functionalised host (ase.Atoms).
-        If guests is given and n_complexes == 1: a single host–guest complex.
-        If guests is given and n_complexes > 1: a list of n_complexes complexes.
+        If guests is given and n_complexes == 1: a single HostGuestComplex.
+        If guests is given and n_complexes > 1: a list of n_complexes HostGuestComplex.
 
     Notes
     -----
-    This does not track a bond matrix through the fragment-attachment
-    step (unlike functionalise_isomer_sites), so host_bond_matrix /
-    HostGuestComplex tracking isn't available here even when guests is
-    given - the fragment attachment shifts atom indices in a way this
-    function doesn't record. If you need the tracked bond matrix for a
-    complex, attach the fragment first (or use an already-complete host),
-    get its bond matrix (e.g. CageBuilder.get_bond_matrix()), and call
-    place_guest_in_host directly with host_bond_matrix set.
+    When guests is given, the bond matrix carried in each HostGuestComplex
+    is derived by place_guest_in_host from the functionalised host's own
+    geometry (via gulp_setup.mmanalysis.analyze_mm), not carried through
+    from host_system - so it already reflects the newly attached
+    fragment's bonds without this function needing to track how fragment
+    attachment shifted atom indices. Pass host_bond_matrix explicitly to
+    place_guest_in_host yourself (e.g. from CageBuilder.get_bond_matrix(),
+    if you attach the fragment separately) to use known-exact bonds
+    instead of this geometry-based guess.
     """
     aligned_sub_fragment, sub_x, host_x, sub_neigh = align_fragment_orientation(
         host_system, sub_fragment, bond_length,
@@ -701,7 +848,7 @@ def functionalise_isomer_sites(host_system,
     -------
     ase.Atoms or FunctionalisedIsomer
         If ``host_bond_matrix`` is ``None`` (default): the host with a
-        fragment attached at every active site, same as before.
+        fragment attached at every active site.
         If ``host_bond_matrix`` is given: a ``FunctionalisedIsomer`` named
         tuple with fields ``atoms`` (as above), ``bond_matrix`` (the merged
         bond-order matrix for the whole decorated structure),

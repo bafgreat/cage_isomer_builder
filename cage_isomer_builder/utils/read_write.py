@@ -178,3 +178,70 @@ def write_run(path: str, atoms: Atoms, bonds: np.ndarray) -> None:
         fileobj.write("Engine DFTB\n")
         fileobj.write("EndEngine\n")
         fileobj.write("eor\n")
+
+
+
+def write_host_guest_complex(complex_, path, lattice="conv", mechanical=False):
+    """
+    Write a HostGuestComplex to disk, picking the writer from ``path``'s
+    file extension.
+
+    - ``.gin`` -> GULP molecular-mechanics input, via
+      ``gulp_setup.mmanalysis.write_gin`` (UFF4MOF atom types assigned by
+      ``analyze_mm`` from ``complex_.bond_matrix``). Bond orders are taken
+      from ``complex_.bond_matrix`` exactly, never re-perceived from the
+      merged host+guest geometry - see place_guest_in_host.
+    - ``.run`` -> AMS geometry-optimisation run script, via
+      utils.read_write.write_run, same bond matrix.
+    - anything else -> plain ``ase.io.write(path, atoms)``. No bond
+      matrix is used (or needed) here, since none of ASE's own formats
+      (xyz, cif, pdb, ...) carry bond order.
+
+    Parameters
+    ----------
+    complex_ : HostGuestComplex or ase.Atoms
+        A HostGuestComplex is required for ``.gin``/``.run`` output,
+        since those need its bond_matrix. Plain ase.Atoms works for any
+        other (bond-order-free) format.
+    path : str or Path
+        Output file path; its suffix selects the writer.
+    lattice : str, default "conv"
+        Forwarded to ``write_gin`` for ``.gin`` output. ``"conv"`` for
+        constant volume (no cell optimisation), ``"conp"`` for constant
+        pressure (cell optimisation) - only relevant for periodic
+        structures.
+    mechanical : bool, default False
+        Forwarded to ``write_gin`` for ``.gin`` output - use its
+        "mechanical properties" input variant instead of the standard
+        geometry-optimisation one.
+
+    Raises
+    ------
+    TypeError
+        If ``path`` ends in ``.gin`` or ``.run`` but ``complex_`` isn't a
+        HostGuestComplex - there is no bond matrix to write.
+    """
+    from pathlib import Path
+    suffix = Path(path).suffix.lower()
+
+    if suffix in {".gin", ".run"}:
+        if not hasattr(complex_, "bond_matrix"):
+            raise TypeError(
+                f"{suffix} output needs bond orders - pass a HostGuestComplex "
+                "(e.g. from place_guest_in_host), not a plain ase.Atoms."
+            )
+        atoms, bond_matrix = complex_.atoms, complex_.bond_matrix
+        if suffix == ".run":
+            write_run(str(path), atoms, bond_matrix)
+        else:
+            from gulp_setup.mmanalysis import analyze_mm, write_gin
+            _, mmtypes = analyze_mm(atoms, bond_order=bond_matrix)
+            write_gin(
+                str(path), atoms, bond_matrix, mmtypes,
+                lattice=lattice, mechanical=mechanical,
+            )
+        return
+
+    from ase.io import write
+    atoms = complex_.atoms
+    write(str(path), atoms)

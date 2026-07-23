@@ -1,0 +1,48 @@
+/*
+  Cage Isomer Builder brand palette
+  #0d1b2a  navy-950  darkest
+  #1b263b  navy-900
+  #415a77  slate-600
+  #778da9  slate-400
+  #e0e1dd  gray-100  lightest
+*/
+
+:root {
+  --cib-navy-950: #0d1b2a;
+  --cib-navy-900: #1b263b;
+  --cib-slate-600: #415a77;
+  --cib-slate-400: #778da9;
+  --cib-gray-100: #e0e1dd;
+}
+
+/* Light mode: dark navy header/nav on a warm off-white page */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--cib-navy-900);
+  --md-primary-fg-color--light: var(--cib-slate-600);
+  --md-primary-fg-color--dark: var(--cib-navy-950);
+  --md-primary-bg-color: var(--cib-gray-100);
+  --md-primary-bg-color--light: var(--cib-gray-100);
+  --md-accent-fg-color: var(--cib-slate-600);
+  --md-accent-fg-color--transparent: rgba(65, 90, 119, 0.1);
+  --md-default-bg-color: var(--cib-gray-100);
+  --md-typeset-a-color: var(--cib-slate-600);
+}
+
+/* Dark mode: near-black navy page, slightly lighter navy header */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: var(--cib-navy-900);
+  --md-primary-fg-color--light: var(--cib-slate-600);
+  --md-primary-fg-color--dark: var(--cib-navy-950);
+  --md-primary-bg-color: var(--cib-gray-100);
+  --md-primary-bg-color--light: var(--cib-gray-100);
+  --md-accent-fg-color: var(--cib-slate-400);
+  --md-accent-fg-color--transparent: rgba(119, 141, 169, 0.15);
+  --md-default-bg-color: var(--cib-navy-950);
+  --md-code-bg-color: var(--cib-navy-900);
+  --md-typeset-a-color: var(--cib-slate-400);
+}
+
+/* Keep the tab bar the same navy as the header for a seamless brand strip */
+.md-tabs {
+  background-color: var(--cib-navy-900);
+}

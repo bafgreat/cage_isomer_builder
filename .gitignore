@@ -1,15 +1,22 @@
 # Python
+
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 
 # Virtual environments
+
 .pyenv/
 .venv/
 venv/
 
+# MkDocs
+
+site/
+
 # Editor / OS
+
 .vscode
 .history
 .DS_Store
@@ -20,3 +27,4 @@ venv/
 poetry.lock
 .history
 .pyenv
+examples

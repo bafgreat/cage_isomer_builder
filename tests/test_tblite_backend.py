@@ -2,12 +2,15 @@
 """
 Standalone smoke tests for the GFN2-xTB (tblite) optimisation backend.
 
-Run directly: python3 tests/test_tblite_backend.py
+Run directly (python3 tests/test_tblite_backend.py) or under pytest.
+test_full_cage_smoke is marked @pytest.mark.slow (builds/optimises a real
+cage) and is skipped by default - run it explicitly with `pytest -m slow`.
 """
 
 from pathlib import Path
 
 import numpy as np
+import pytest
 from ase import Atoms
 from ase.build import molecule
 from ase.optimize import BFGS
@@ -74,6 +77,7 @@ def test_rigid_body_constraint() -> None:
           f"max internal shape drift={max_shape_drift:.2e} Angstrom")
 
 
+@pytest.mark.slow
 def test_full_cage_smoke(tmp_dir: Path) -> None:
     """cage.optimise() should run end-to-end on a real cage with GFN2-xTB."""
     from cage_isomer_builder.cage import Tri4Di6CageBuilder

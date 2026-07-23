@@ -1,6 +1,11 @@
 # Framework Isomer Builder
 
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-1b263b)](https://bafgreat.github.io/cage_isomer_builder/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-415a77)](LICENSE)
+
 A comprehensive Python library for building, enumerating, and functionalising metal-organic cages and framework (MOF) isomers. It can also be used as a lightweight tool for generating host–guest docked complexes for finite cages.
+
+Full documentation, including a complete API reference: **[docs](https://bafgreat.github.io/cage_isomer_builder/)**
 
 ## Main functionalities
 
@@ -95,7 +100,7 @@ from cage_isomer_builder.utils.functionalise import (
 host = read('Cage_molecule.xyz')
 guest = read('guest_molecule.xyz')
 
-n_max = max_guests_in_host(host, guest, seed=0)
+n_max = max_guests_in_host(host, guest)
 complexes = place_guest_in_host(host, guest, n_guests=n_max, seed=0)
 print(f"{len(complexes[0].guest_labels)} guests placed inside the cage")
 ```
