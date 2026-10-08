@@ -4,7 +4,7 @@ Standalone smoke tests for the GFN2-xTB (tblite) optimisation backend.
 
 Run directly (python3 tests/test_tblite_backend.py) or under pytest.
 test_full_cage_smoke is marked @pytest.mark.slow (builds/optimises a real
-cage) and is skipped by default - run it explicitly with `pytest -m slow`.
+cage) and is skipped by default; run it explicitly with `pytest -m slow`.
 """
 
 from pathlib import Path
@@ -51,9 +51,9 @@ def test_rigid_body_constraint() -> None:
     """FixRigidBodies must keep each group's internal shape fixed under xTB forces."""
     atoms = molecule("CH3CH2OH")
     n = len(atoms)
-    # Treat the whole molecule as a single rigid group and displace it -
-    # a converged optimisation should translate/rotate it back near its
-    # original centroid-relative shape without deforming bond lengths.
+    # Treat the whole molecule as one rigid group and displace it. The
+    # optimisation may move and rotate it but must not change its bond
+    # lengths.
     group = list(range(n))
     ref = FixRigidBodies.from_atoms(atoms, [group])
 

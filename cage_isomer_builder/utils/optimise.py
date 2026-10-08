@@ -17,11 +17,14 @@ honour one.
 
 ``UFF4MOFCalculator`` evaluates energies and forces with OpenMM
 (``openmm.CustomBondForce`` / ``CustomAngleForce`` / ``CustomTorsionForce``
-for bonded terms, plus a pairwise ``CustomBondForce`` for the van der Waals
-term beyond 1-3 neighbours), using the combining rules in
-:mod:`cage_isomer_builder.utils.uff4mof_params`.
+for bond, angle and torsion terms, ``CustomCompoundBondForce`` for the
+out-of-plane inversion term, and ``CustomNonbondedForce`` for van der Waals
+and Coulomb beyond 1-3 neighbours), using the combining rules in
+:mod:`cage_isomer_builder.utils.uff4mof_params`. The energy matches RDKit's
+UFF implementation for organic molecules (see tests/test_uff4mof_backend.py).
 """
 
+from collections import Counter
 from typing import Optional
 
 import numpy as np
@@ -31,14 +34,14 @@ from ase.optimize import LBFGS
 
 from cage_isomer_builder.utils.uff4mof_params import (
     angle_coefficients,
-    bond_graph_distance,
     bond_params,
     enumerate_angles,
     enumerate_bonds,
+    enumerate_inversions,
     enumerate_torsions,
     hybridization_from_typename,
+    inversion_params,
     torsion_params,
-    vdw_params,
 )
 
 KCAL_TO_KJ = 4.184
@@ -62,27 +65,50 @@ class UFF4MOFCalculator(Calculator):
         Parameter table from
         :func:`cage_isomer_builder.utils.uff4mof_params.load_uff4mof_db`.
     charges : np.ndarray, shape (n_atoms,), optional
-        Fixed per-atom partial charges (elementary charge units). When
-        given, a Coulomb term (``ke*qi*qj/r``) is added over the same
-        non-bonded pairs as the van der Waals term (graph distance > 2) -
-        UFF4MOF, like the original UFF, is parameterised assuming a QEq-like
-        electrostatic contribution is present alongside the bond/angle/
-        torsion/vdW terms; omitting it understates the electrostatic pull
-        between charged fragments (e.g. an anionic carboxylate node and a
-        cationic metal cluster) that helps hold a MOF-like assembly together
-        correctly. Charges are held fixed for the whole optimisation (not
-        re-equilibrated every step), matching standard UFF/QEq practice.
-        When ``None`` (default), no electrostatic term is added at all.
+        Fixed partial charges (elementary charges). When given, a Coulomb
+        term ``ke*qi*qj/r`` is added over the same non-bonded pairs as the
+        van der Waals term (more than two bonds apart). UFF, and so UFF4MOF,
+        assumes such an electrostatic term; without it the attraction
+        between charged fragments (e.g. carboxylates and a metal cluster) is
+        missing. The charges are not updated during the optimisation, as is
+        usual for UFF with QEq charges. ``None`` (default) adds no Coulomb
+        term.
+    platform : str, optional
+        OpenMM platform name ("Reference", "CPU", "OpenCL", "CUDA").
+        Defaults to the fastest one available.
+    precision : str, default "mixed"
+        Precision for platforms that support it (OpenCL, CUDA): "single",
+        "mixed" or "double". "mixed" computes forces in single precision
+        and adds them up in double precision. The Reference platform is
+        always double precision.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ase.build import molecule
+    >>> methane = molecule("CH4")
+    >>> bonds = np.zeros((5, 5))
+    >>> bonds[0, 1:] = bonds[1:, 0] = 1.0              # four C-H bonds
+    >>> from gulp_setup.mmanalysis import analyze_mm
+    >>> from cage_isomer_builder.utils.optimise import UFF4MOFCalculator
+    >>> from cage_isomer_builder.utils.uff4mof_params import load_uff4mof_db
+    >>> _, types = analyze_mm(methane, bond_order=bonds)
+    >>> methane.calc = UFF4MOFCalculator(bonds, types, load_uff4mof_db())
+    >>> [str(t) for t in types], methane.get_forces().shape
+    (['C_3', 'H_', 'H_', 'H_', 'H_'], (5, 3))
     """
 
     implemented_properties = ["energy", "forces"]
 
-    def __init__(self, bond_matrix, mmtypes, uff_db, charges=None, **kwargs):
+    def __init__(self, bond_matrix, mmtypes, uff_db, charges=None,
+                 platform=None, precision="mixed", **kwargs):
         super().__init__(**kwargs)
         self.bond_matrix = np.asarray(bond_matrix, dtype=float)
         self.mmtypes = np.asarray(mmtypes)
         self.uff_db = uff_db
         self.charges = None if charges is None else np.asarray(charges, dtype=float)
+        self.platform = platform
+        self.precision = precision
         self._context = None
 
     def _build_context(self, atoms):
@@ -122,43 +148,107 @@ class UFF4MOFCalculator(Calculator):
             angle_force.addAngle(i, c, k_idx, [k_ijk * KCAL_TO_KJ, *coeffs])
         system.addForce(angle_force)
 
+        torsions = enumerate_torsions(self.bond_matrix)
+        # Each bond's barrier is shared out over all torsions about it.
+        per_bond = Counter((min(j, k), max(j, k)) for _, j, k, _ in torsions)
         torsion_force = openmm.CustomTorsionForce("0.5*v*(1 - cosTerm*cos(n*theta))")
         for name in ("v", "cosTerm", "n"):
             torsion_force.addPerTorsionParameter(name)
-        for i, j, k_idx, l in enumerate_torsions(self.bond_matrix):
-            order_jk = self.bond_matrix[j, k_idx]
+        for i, j, k_idx, l in torsions:
             n, cos_term, v = torsion_params(
-                params[j], params[k_idx], order_jk,
+                params[j], params[k_idx], self.bond_matrix[j, k_idx],
                 hybridizations[j], hybridizations[k_idx],
+                hybridizations[i], hybridizations[l],
             )
+            if v == 0.0:
+                continue
+            v /= per_bond[(min(j, k_idx), max(j, k_idx))]
             torsion_force.addTorsion(i, j, k_idx, l, [v * KCAL_TO_KJ, cos_term, n])
         system.addForce(torsion_force)
 
-        graph_dist = bond_graph_distance(self.bond_matrix)
-        vdw_force = openmm.CustomBondForce("d*((x/r)^12 - 2*(x/r)^6)")
-        vdw_force.addPerBondParameter("x")
-        vdw_force.addPerBondParameter("d")
-        coulomb_force = None
+        # Out-of-plane term. With a = r1 - r2, b = r3 - r2, l = r4 - r2
+        # (particle 2 is the centre), cos(w) = sin(angle between l and a x b).
+        inversion_force = openmm.CustomCompoundBondForce(
+            4,
+            "k*(c0 + c1*sinY + c2*(2*sinY^2 - 1));"
+            "sinY = sqrt(max(1e-10, 1 - cosY^2));"
+            "cosY = (nx*lx + ny*ly + nz*lz) / sqrt((nx^2 + ny^2 + nz^2)*(lx^2 + ly^2 + lz^2));"
+            "nx = ay*bz - az*by; ny = az*bx - ax*bz; nz = ax*by - ay*bx;"
+            "ax = x1 - x2; ay = y1 - y2; az = z1 - z2;"
+            "bx = x3 - x2; by = y3 - y2; bz = z3 - z2;"
+            "lx = x4 - x2; ly = y4 - y2; lz = z4 - z2",
+        )
+        for name in ("k", "c0", "c1", "c2"):
+            inversion_force.addPerBondParameter(name)
+        for i, c, k_idx, l in enumerate_inversions(self.bond_matrix):
+            term = inversion_params(
+                self.mmtypes[c], (self.mmtypes[i], self.mmtypes[k_idx], self.mmtypes[l])
+            )
+            if term is not None:
+                k_inv, c0, c1, c2 = term
+                inversion_force.addBond([i, c, k_idx, l], [k_inv * KCAL_TO_KJ, c0, c1, c2])
+        system.addForce(inversion_force)
+
+        # van der Waals (and Coulomb when charges are given) over every pair
+        # more than two bonds apart. Geometric-mean combining rules.
+        nonbonded_energy = "d*((x/r)^12 - 2*(x/r)^6)"
         if self.charges is not None:
-            coulomb_force = openmm.CustomBondForce(f"{COULOMB_CONSTANT}*qq/r")
-            coulomb_force.addPerBondParameter("qq")
-        n_atoms = len(atoms)
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                if graph_dist[i, j] <= 2:
-                    continue
-                x_ij, d_ij = vdw_params(params[i], params[j])
-                vdw_force.addBond(i, j, [x_ij * NM_PER_ANGSTROM, d_ij * KCAL_TO_KJ])
-                if coulomb_force is not None:
-                    coulomb_force.addBond(i, j, [float(self.charges[i] * self.charges[j])])
-        system.addForce(vdw_force)
-        if coulomb_force is not None:
-            system.addForce(coulomb_force)
+            nonbonded_energy += f" + {COULOMB_CONSTANT}*q1*q2/r"
+        nonbonded = openmm.CustomNonbondedForce(
+            nonbonded_energy + "; x = sqrt(x1*x2); d = sqrt(d1*d2)"
+        )
+        nonbonded.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
+        for name in ("x", "d", "q"):
+            nonbonded.addPerParticleParameter(name)
+        charges = self.charges if self.charges is not None else np.zeros(len(atoms))
+        for p, q in zip(params, charges):
+            nonbonded.addParticle([p.x1 * NM_PER_ANGSTROM, p.D1 * KCAL_TO_KJ, float(q)])
+        nonbonded.createExclusionsFromBonds(
+            [(i, j) for i, j, _ in enumerate_bonds(self.bond_matrix)], 2
+        )
+        system.addForce(nonbonded)
 
         integrator = openmm.VerletIntegrator(1.0 * unit.femtoseconds)
-        self._context = openmm.Context(system, integrator)
+        if self.platform is not None:
+            candidates = [openmm.Platform.getPlatformByName(self.platform)]
+        else:
+            # Fastest first. A GPU platform can fail to start, e.g. Apple's
+            # OpenCL has no double support, so it can't run "mixed".
+            candidates = sorted(
+                (openmm.Platform.getPlatform(i) for i in range(openmm.Platform.getNumPlatforms())),
+                key=lambda p: -p.getSpeed(),
+            )
+        for n_tried, platform in enumerate(candidates, start=1):
+            properties = {}
+            if "Precision" in platform.getPropertyNames():
+                properties["Precision"] = self.precision
+            try:
+                self._context = openmm.Context(system, integrator, platform, properties)
+                break
+            except openmm.OpenMMException:
+                if n_tried == len(candidates):
+                    raise
+                integrator = openmm.VerletIntegrator(1.0 * unit.femtoseconds)
 
     def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):
+        """
+        Evaluate the UFF4MOF energy (eV) and forces (eV/Angstrom) with
+        OpenMM (ASE calculator interface).
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> water = molecule("H2O")
+        >>> bonds = np.array([[0, 1, 1], [1, 0, 0], [1, 0, 0]], dtype=float)
+        >>> from gulp_setup.mmanalysis import analyze_mm
+        >>> from cage_isomer_builder.utils.optimise import UFF4MOFCalculator
+        >>> from cage_isomer_builder.utils.uff4mof_params import load_uff4mof_db
+        >>> _, types = analyze_mm(water, bond_order=bonds)
+        >>> water.calc = UFF4MOFCalculator(bonds, types, load_uff4mof_db())
+        >>> isinstance(water.get_potential_energy(), float)      # calls calculate()
+        True
+        """
         super().calculate(atoms, properties, system_changes)
         from openmm import unit
 
@@ -188,15 +278,15 @@ def run_uff4mof_optimisation(
     optimizer_cls=None,
     trajectory: Optional[str] = None,
     charges: Optional[np.ndarray] = None,
+    logfile: Optional[str] = "-",
 ):
     """
     Relax a molecular geometry with ASE using a UFF4MOF (OpenMM) calculator.
 
     UFF atom types are assigned automatically from ``bond_matrix`` via
     :func:`gulp_setup.mmanalysis.analyze_mm` (a heuristic cost function over
-    local coordination number, angle and radius - see that module for
-    details); the bond matrix itself is taken as-is, never re-derived from
-    geometry.
+    local coordination number, angle and radius); the bond matrix is used as
+    given, never re-derived from the geometry.
 
     Parameters
     ----------
@@ -216,14 +306,28 @@ def run_uff4mof_optimisation(
     trajectory : str, optional
         File path for an ASE ``.traj`` trajectory.
     charges : np.ndarray, shape (len(atoms),), optional
-        Fixed per-atom partial charges forwarded to
-        :class:`UFF4MOFCalculator` to add its Coulomb term. When ``None``
-        (default), the optimisation runs without electrostatics, as before.
+        Fixed partial charges, passed to :class:`UFF4MOFCalculator` for its
+        Coulomb term. ``None`` (default) runs without electrostatics.
+    logfile : str or None, default "-"
+        Where the optimiser writes its step log: ``"-"`` for the terminal,
+        a file path, or ``None`` for no output.
 
     Returns
     -------
     ase.Atoms
-        Optimised structure (a copy - the input ``atoms`` is not modified).
+        Optimised structure (a copy; the input ``atoms`` is not modified).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ase.build import molecule
+    >>> methane = molecule("CH4")
+    >>> bonds = np.zeros((5, 5))
+    >>> bonds[0, 1:] = bonds[1:, 0] = 1.0              # four C-H bonds
+    >>> from cage_isomer_builder.utils.optimise import run_uff4mof_optimisation
+    >>> relaxed = run_uff4mof_optimisation(methane, bonds, logfile=None)
+    >>> round(float(relaxed.get_distance(0, 1)), 2), round(float(relaxed.get_angle(1, 0, 2)), 1)
+    (1.11, 109.5)
     """
     from gulp_setup.mmanalysis import analyze_mm
 
@@ -237,11 +341,33 @@ def run_uff4mof_optimisation(
 
     _, mmtypes = analyze_mm(opt_atoms, bond_order=np.asarray(bond_matrix, dtype=float))
     uff_db = load_uff4mof_db()
+    from cage_isomer_builder.__data__.uff4mof_data import DERIVED_UFF4MOF_DATA
+
+    unknown = sorted({str(t) for t in mmtypes if t not in uff_db})
+    if unknown:
+        raise ValueError(
+            f"no UFF4MOF parameters for atom type(s) {unknown} assigned by "
+            "gulp_setup; use method='GFN2-xTB' for this structure."
+        )
+    from cage_isomer_builder.__data__.uff4mof_data import UFF4MOF_DATA
+
+    published = {tuple(v) for v in UFF4MOF_DATA.values()}
+    # Derived types identical to a published one (O_HH = O_3, H_OH = H_,
+    # N_3+4 = N_3, K = K_, W_3f4 = W_3f2) are aliases: nothing to warn about.
+    derived = sorted({str(t) for t in mmtypes if t in DERIVED_UFF4MOF_DATA
+                      and tuple(DERIVED_UFF4MOF_DATA[t]) not in published})
+    if derived:
+        import warnings
+        warnings.warn(
+            f"UFF4MOF type(s) {derived} have no published parameter set; using "
+            "parameters derived from the same element's type (see "
+            "DERIVED_UFF4MOF_DATA in cage_isomer_builder/__data__/uff4mof_data.py)."
+        )
     opt_atoms.calc = UFF4MOFCalculator(
         bond_matrix=bond_matrix, mmtypes=mmtypes, uff_db=uff_db, charges=charges
     )
 
-    opt = optimizer_cls(opt_atoms, trajectory=trajectory)
+    opt = optimizer_cls(opt_atoms, trajectory=trajectory, logfile=logfile)
     opt.run(fmax=fmax, steps=steps)
 
     return opt_atoms

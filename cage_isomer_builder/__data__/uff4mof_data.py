@@ -15,7 +15,7 @@ Columns per entry: (r1, theta0, x1, D1, zeta, Z1, Vi, Uj, Xi, Hard, Radius)
     Vi     kcal/mol     sp3 torsion barrier
     Uj     kcal/mol     sp2 torsion barrier
     Xi     eV           GMP electronegativity
-    Hard   eV           QEq hardness (unused here - no charge
+    Hard   eV           QEq hardness (unused here; no charge
                         equilibration is performed by this backend)
     Radius Angstrom     QEq covalent radius (unused here)
 
@@ -256,4 +256,43 @@ UFF4MOF_DATA = {
     "U_6f3": (1.65, 90, 3.395, 0.022, 12, 3.9, 0, 0, 3.341, 2.853, 1.713),
     "U_8f4": (1.73, 109.47, 3.395, 0.022, 12, 3.9, 0, 0, 3.341, 2.853, 1.713),
     "S_3_f": (0.854, 109.47, 4.035, 0.274, 13.969, 2.703, 0.484, 1.25, 6.928, 4.486, 1.047),
+}
+
+
+#: Atom types that gulp_setup's typing library (``gulp_setup/__data__/uff/
+#: uff4mof.csv``, shared with AuToGraFS) can assign but that have no full
+#: parameter set above. Without them, an optimisation of any structure
+#: typed with one of them fails (e.g. "Zr6f3" for a lone Zr with four N).
+#:
+#: Derived by the UFF4MOF convention (Addicoat et al. 2014): a new metal type
+#: changes only the bond radius r1 and the angle theta0; every other column
+#: is the element's existing type with the same oxidation state (the last
+#: digit), or the element's first type when none matches. r1 and theta0 are
+#: the typing library's values, which equal the parameter values above for
+#: every shared type except the 8-coordinate "8f4" types, whose library angle
+#: (72.4) is only a typing aid; GULP's own UFF4MOF library uses 109.47 (seen
+#: in its output for UiO-66); Ti8f4 follows that. These entries are not from a
+#: published table; tests/test_uff4mof_backend.py re-derives them, and
+#: ``optimise()`` warns when one of them is used, except the five that are
+#: numerically identical to a published type and so are mere aliases:
+#: O_HH = O_3 (gulp_setup types every two-coordinate sp3 O as O_HH), H_OH = H_,
+#: N_3+4 = N_3, K = K_ and W_3f4 = W_3f2.
+#: Not covered: Lr6+3 (no lawrencium parameters at all).
+DERIVED_UFF4MOF_DATA = {
+    "Au1f1": (1.11, 180.0, 3.293, 0.039, 12, 2.625, 0, 0.1, 4.894, 2.586, 1.618),  # parent Au4+3
+    "Ca1f1": (1.56, 180.0, 3.399, 0.238, 12, 2.141, 0, 0.7, 3.231, 2.88, 2),  # parent Ca6+2
+    "Co2f2": (1.25, 120.0, 2.872, 0.014, 12.0, 1.308, 0, 0.7, 4.105, 4.175, 1.406),  # parent Co3+2
+    "Co6+2": (1.241, 90.0, 2.872, 0.014, 12.0, 1.308, 0, 0.7, 4.105, 4.175, 1.406),  # parent Co3+2
+    "Fe1f1": (1.38, 180.0, 2.912, 0.013, 12, 2.43, 0, 0.7, 3.76, 4.14, 1.393),  # parent Fe3+2
+    "H_OH": (0.354, 180.0, 2.886, 0.044, 12, 0.712, 0, 0, 4.528, 6.9452, 0.371),  # parent H_
+    "K": (1.953, 180.0, 3.812, 0.035, 12, 1.165, 0, 0.7, 2.421, 1.92, 2.586),  # parent K_
+    "La2f2": (1.86, 120.0, 3.522, 0.017, 12, 3.3, 0, 0.1, 2.8355, 2.7415, 2.071),  # parent La3+3
+    "Lu1f1": (1.65, 180.0, 3.64, 0.041, 12, 3.271, 0, 0.1, 2.9629, 2.4629, 1.896),  # parent Lu6+3
+    "N_3+4": (0.7, 106.7, 3.66, 0.069, 13.407, 2.544, 0.45, 2, 6.899, 5.88, 0.715),  # parent N_3
+    "O_HH": (0.658, 104.51, 3.5, 0.06, 14.085, 2.3, 0.018, 2, 8.741, 6.682, 0.669),  # parent O_3
+    "Pt4f2": (1.125, 90.0, 2.754, 0.08, 12, 3.382, 0, 0.1, 4.79, 4.43, 1.557),  # parent Pt4+2
+    "Rh4f2": (1.22, 90.0, 2.929, 0.053, 12, 3.5, 0, 0.2, 3.975, 4.005, 1.509),  # parent Rh6+3
+    "Ti8f4": (1.46, 109.47, 3.175, 0.017, 12, 2.659, 0, 0.7, 3.47, 3.38, 1.607),  # parent Ti3+4
+    "W_3f4": (1.16, 109.47, 3.069, 0.067, 12, 3.7, 0, 0.1, 4.63, 3.31, 1.538),  # parent W_3+4
+    "Zr6f3": (1.25, 90.0, 3.124, 0.069, 12, 3.667, 0, 0.2, 3.4, 3.55, 1.758),  # parent Zr3+4
 }

@@ -1,6 +1,6 @@
 ---
 description: >-
-  The 29 metal-organic cage topologies supported out of the box - node and
+  The 29 metal-organic cage topologies supported: node and
   linker topicity, and which builder class to use for each.
 ---
 
@@ -48,6 +48,6 @@ units. Input structures can be supplied as file paths or as ASE `Atoms`
 objects; generated structures can be saved in any format supported by ASE.
 
 Every builder class shares the same interface as
-[`CageBuilder`](reference/cage.md) - only the topology graph and point-group
+[`CageBuilder`](reference/cage.md); only the topology graph and point-group
 transformation library differ. See `cage_isomer_builder.cage.library` in the
 [API reference](reference/cage.md) for the full class list.

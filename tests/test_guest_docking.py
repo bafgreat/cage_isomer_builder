@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Standalone smoke tests for RSA host-guest docking
+Standalone smoke tests for host-guest docking (RSA and energy methods)
 (cage_isomer_builder.utils.functionalise) and its writers
 (cage_isomer_builder.utils.read_write.write_host_guest_complex).
 
 Run directly: python3 tests/test_guest_docking.py
 
-Uses a buckyball (ase.build.molecule("C60")) as the host - a real,
-fast-to-construct enclosed cavity, so pywindow's pore analysis succeeds
-without needing a full cage build.
+Random packing uses the tetrahedral cage of UiO-66 (a Tri4Di6 cage of the
+UiO-66 node and 1,4-phenylene, built once and optimised): a real cavity
+(7.5 A) with real windows (4.1 A). The energy method uses methane in C60,
+whose best site is the cage centre by symmetry.
 """
 
 import warnings
 from pathlib import Path
 
 import numpy as np
-from ase import Atoms
+import pytest
 from ase.build import molecule
 from ase.io import read
 
@@ -29,10 +30,28 @@ from cage_isomer_builder.utils.read_write import write_host_guest_complex
 DATA_DIR = Path(__file__).parent / "data"
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _uio66_cage():
+    from cage_isomer_builder.cage import Tri4Di6CageBuilder
+
+    cage = Tri4Di6CageBuilder(node=str(DATA_DIR / "uio66_tri_node.xyz"),
+                              linker=str(DATA_DIR / "bdc.xyz"), scale_multiplier=0.225)
+    cage.build()
+    cage.optimise(include_charges=False, logfile=None)
+    return cage.to_ase()
+
+
 def _host_and_guest():
-    host = molecule("C60")
-    guest = read(str(DATA_DIR / "methane.xyz"))
-    return host, guest
+    """UiO-66 tetrahedral cage and methane (random packing)."""
+    return _uio66_cage().copy(), read(str(DATA_DIR / "methane.xyz"))
+
+
+def _c60_and_methane():
+    """C60 and methane (energy method: the best site is the centre)."""
+    return molecule("C60"), read(str(DATA_DIR / "methane.xyz"))
 
 
 def test_max_guests_in_host_finds_a_real_capacity() -> None:
@@ -40,7 +59,7 @@ def test_max_guests_in_host_finds_a_real_capacity() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         n_max = max_guests_in_host(host, guest)
-    assert n_max > 0, "expected at least one methane to fit inside C60"
+    assert 0 < n_max <= 8, f"a 7.5 A cavity holds a few methanes, not {n_max}"
     print(f"test_max_guests_in_host_finds_a_real_capacity passed: n_max={n_max}")
 
 
@@ -61,8 +80,7 @@ def test_place_guest_in_host_respects_n_guests() -> None:
 def test_complexes_are_distinct_and_well_spread() -> None:
     """
     Different complexes from one call must not repeat the same guest
-    position - this was the original bug (n_complexes independently
-    resampling could put every complex's guest in the same spot).
+    position.
     """
     host, guest = _host_and_guest()
     with warnings.catch_warnings():
@@ -90,7 +108,7 @@ def test_returns_host_guest_complex_with_consistent_bond_matrix() -> None:
     assert np.array_equal(complex_.bond_matrix, complex_.bond_matrix.T), "bond matrix must be symmetric"
 
     # No bond should ever be recorded between host and guest, or between
-    # two different guest copies - encapsulation is non-covalent.
+    # two different guest copies: encapsulation is non-covalent.
     cross_block = complex_.bond_matrix[:n_host, n_host:]
     assert not np.any(cross_block), "host-guest cross terms must stay zero"
     print("test_returns_host_guest_complex_with_consistent_bond_matrix passed")
@@ -133,6 +151,87 @@ def test_write_host_guest_complex_formats(tmp_dir: Path) -> None:
     print("test_write_host_guest_complex_formats passed")
 
 
+def test_energy_method_finds_the_best_site() -> None:
+    """
+    Methane in C60: by symmetry the best site is the cage centre. The
+    energy method must find it, and must beat every pose of a brute-force
+    search scored with full dftd4 plus the UFF repulsion.
+    """
+    from cage_isomer_builder.utils.dispersion import (
+        d4_interaction_energy,
+        uff_interaction_energy,
+    )
+
+    def full_energy(fragments):
+        return d4_interaction_energy(fragments) + uff_interaction_energy(
+            fragments, repulsion_only=True
+        )
+    from cage_isomer_builder.utils.geometry import random_rotation_matrix
+
+    host, guest = _c60_and_methane()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        complexes = place_guest_in_host(host, guest, method="energy", seed=0)
+
+    assert len(complexes) == 1
+    complex_ = complexes[0]
+    assert isinstance(complex_, HostGuestComplex)
+    placed = complex_.atoms[complex_.guest_atom_indices]
+    centre = host.get_center_of_mass()
+    assert np.linalg.norm(placed.get_center_of_mass() - centre) < 0.1
+
+    energy = complex_.atoms.info["interaction_energy"]
+    assert energy == pytest.approx(full_energy([host, placed]))
+
+    np.random.seed(1)
+    centred = guest.copy()
+    centred.translate(-centred.get_center_of_mass())
+    for _ in range(100):
+        trial = centred.copy()
+        trial.positions = trial.positions @ random_rotation_matrix().T + centre
+        trial.translate(np.random.uniform(-0.5, 0.5, 3))
+        assert energy <= full_energy([host, trial]) + 1e-6
+
+
+def test_energy_method_warns_when_guests_do_not_fit() -> None:
+    """Only one methane fits in C60, so asking for two caps with a warning."""
+    host, guest = _c60_and_methane()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        complexes = place_guest_in_host(host, guest, n_guests=2, method="energy", seed=0)
+
+    assert len(complexes[0].guest_labels) == 1
+    assert any("no allowed site" in str(w.message) for w in caught)
+
+
+def test_unknown_method_raises() -> None:
+    host, guest = _host_and_guest()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError, match="method="):
+            place_guest_in_host(host, guest, method="best")
+
+
+def test_cavity_and_windows_are_physical() -> None:
+    from cage_isomer_builder.utils.cavity import largest_window, pore_sphere
+
+    host = _uio66_cage()
+    centre, diameter = pore_sphere(host)
+    assert 7.0 < diameter < 8.0                    # UiO-66 tetrahedral cage
+    assert 3.5 < largest_window(host, centre) < 4.5
+    c60 = molecule("C60")
+    assert largest_window(c60) is None             # closed
+    assert pore_sphere(c60)[1] < 3.8               # too small for methane
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert max_guests_in_host(c60, read(str(DATA_DIR / "methane.xyz")), seed=0) == 0
+
+
+def test_guest_wider_than_every_window_is_rejected() -> None:
+    with pytest.raises(ValueError, match="window"):
+        max_guests_in_host(_uio66_cage(), read(str(DATA_DIR / "ibuprofen.xyz")), seed=0)
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -143,5 +242,8 @@ if __name__ == "__main__":
     test_n_guests_beyond_capacity_warns_and_caps()
     with tempfile.TemporaryDirectory() as tmp:
         test_write_host_guest_complex_formats(Path(tmp))
+    test_energy_method_finds_the_best_site()
+    test_energy_method_warns_when_guests_do_not_fit()
+    test_unknown_method_raises()
 
     print("\nAll guest-docking tests passed.")

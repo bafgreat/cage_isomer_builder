@@ -71,18 +71,40 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Guide:
+      - Quick start: guide/quickstart.md
       - Build & enumerate isomers: guide/build-and-enumerate.md
+      - Optimisation: guide/optimisation.md
       - Functionalise isomers: guide/functionalising-isomers.md
-      - Host-guest docking: guide/host-guest-docking.md
-      - Statistics: guide/statistics.md
       - Functionalise MOFs: guide/functionalise-mofs.md
+      - R sites & file formats: guide/r-sites.md
+      - Statistics: guide/statistics.md
+      - Descriptors: guide/descriptors.md
+      - Multivariate pores & defects: guide/multivariate.md
+      - Guests & matching: guide/matching.md
+      - Host-guest docking: guide/host-guest-docking.md
   - Topologies: topologies.md
   - API Reference:
       - Cage builders: reference/cage.md
+      - Example structures: reference/example-data.md
+      - R sites: reference/sites.md
+      - R-group isomers: reference/rgroup.md
+      - Isomer counting: reference/isomer-counting.md
+      - Point groups: reference/pointgroup.md
+      - Symmetry libraries: reference/symmetry.md
+      - Features: reference/features.md
+      - Pair distributions: reference/distributions.md
+      - Isomer ensembles: reference/ensemble.md
+      - Flexibility: reference/flexibility.md
+      - Guest matching: reference/matching.md
       - Functionalise & docking: reference/functionalise.md
+      - Cavity & windows: reference/cavity.md
+      - Dispersion: reference/dispersion.md
+      - Optimisation: reference/optimise.md
+      - UFF4MOF parameters: reference/uff4mof.md
+      - xTB (tblite): reference/tblite.md
+      - Rigid bodies: reference/rigid-body.md
       - Read / write: reference/read-write.md
       - Geometry utilities: reference/geometry.md
-      - Optimisation: reference/optimise.md
   - License: license.md
 
 extra:

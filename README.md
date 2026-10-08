@@ -3,7 +3,7 @@
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-1b263b)](https://bafgreat.github.io/cage_isomer_builder/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-415a77)](LICENSE)
 
-A comprehensive Python library for building, enumerating, and functionalising metal-organic cages and framework (MOF) isomers. It can also be used as a lightweight tool for generating host–guest docked complexes for finite cages.
+A Python library for building, enumerating, and functionalising metal-organic cages and framework (MOF) isomers. It can also be used as a lightweight tool for generating host-guest docked complexes for finite cages.
 
 Full documentation, including a complete API reference: **[docs](https://bafgreat.github.io/cage_isomer_builder/)**
 
@@ -12,9 +12,15 @@ Full documentation, including a complete API reference: **[docs](https://bafgrea
 - Build any of the 29 most common metal-organic cage topologies from a simple node and linker input
 - Optimise cage structures with UFF4MOF using real bond orders, or with GFN-xTB, while preserving the shape of nodes and linkers through rigid-body relaxation
 - Generate symmetry-unique isomers for finite cages using point-group methods, and for periodic MOFs using space-group methods based on spglib
+- Find the point group of a finite cage from its atoms, so it works for any topology, including Ih and D5h cages
+- Count and enumerate isomers with two or more different functional groups (R1, R2, ...)
 - Functionalise cages and MOFs by attaching real fragments to one, several, or all active sites, with control over the distribution by ratio
 - Dock guest molecules into finite cages, including mixed-guest systems and capacity checks
+- Place guests at their lowest-energy sites, scored with DFT-D4 dispersion
 - Calculate cage-level statistics such as isomer counts, functional-group-to-functional-group distance distributions, and endo/exo classifications
+- Describe pores and guests by feature-site pair distributions: functional groups, aromatic rings (with normals), H-bond donors/acceptors on linkers and nodes, and open metal sites
+- Average descriptors exactly over multivariate, partially functionalised and defective (missing linker/node) isomer ensembles, over any composition ratio, and over linker ring rotations; scale pores isotropically
+- Describe a flexible guest over its conformers and score how well it matches a pore
 
 ## Installation
 
@@ -28,6 +34,20 @@ cloning the GitHub repository.
 pip install cage_isomer_builder
 ```
 
+### Optional extras
+
+tblite (GFN-xTB) and dftd4 (D4 dispersion) are optional, because they have
+no Windows wheels. Without them the package still works: UFF4MOF optimises
+without its Coulomb term, and guest sites are scored with UFF instead of D4.
+Both print a warning.
+
+```bash
+pip install "cage_isomer_builder[all]"
+```
+
+See the [installation guide](https://bafgreat.github.io/cage_isomer_builder/installation/)
+for Windows notes.
+
 ### GitHub
 
 ```bash
@@ -40,117 +60,106 @@ pip install .
 
 ## Quickstart
 
-### Build a cage from building units and enumerate isomers
+Every structure used below ships with the package
+(`cage_isomer_builder.example_data`), so the code runs as it is. The
+[documentation](https://bafgreat.github.io/cage_isomer_builder/) has a guide
+for each step and an example for every function.
 
-You can import any of the cage builder classes
-from `cage_isomer_builder.cage` to build a cage.
-The example below builds a `Tri4Di6` cage.
+### Build a pore and count its isomers
 
-The isomer enumeration matches all C–H bonds
-in the linker (courtesy of mofstructure) and
-enumerates all unique isomers that can be formed.
-All unique isomerisation placeholders are labelled
-with `At`.
+The tetrahedral pore of UiO-66, built as a Tri4Di6 cage from the UiO-66 Zr6
+node and a 1,4-phenylene linker:
 
 ```python
+from cage_isomer_builder import example_data
 from cage_isomer_builder.cage import Tri4Di6CageBuilder
 
 cage = Tri4Di6CageBuilder(
-    node="tests/data/uio66_tri_node.xyz",
-    linker="tests/data/bdc.xyz",
+    node=example_data.path("uio66_tri_node"),   # X atoms mark the connection points
+    linker=example_data.path("bdc"),
+    scale_multiplier=0.225,                     # place the bulky node next to the linkers
 )
-
 cage.build()
-cage.optimise(rigid_sbus=True)          # UFF4MOF, node/linker shapes preserved
-cage.save("cage.xyz")
+cage.optimise(include_charges=False, logfile=None)   # UFF4MOF, rigid nodes and linkers
+
+anchors, sites = cage.functionalise()    # every aromatic C-H becomes an R site
+print(cage.point_group().name)           # Td
+print(cage.count_unique_isomers_burnside())   # 176
 
 isomers = cage.enumerate_isomers(output_path="isomers")
-print(f"{len(isomers)} symmetry-unique isomers")
 ```
 
-### Functionalising the enumerated isomers
+Optimise (or lower `scale_multiplier`) before `functionalise()`: STK places
+bulky nodes away from their linkers, and `functionalise()` warns when the
+building blocks are not bonded.
 
-All `At`-labelled sites in the enumerated isomers
-can be functionalised using any functional-group moiety.
-The only requirement is that the group must contain an
-`X` dummy atom at the position to be functionalised.
-See the example below.
+### Attach functional groups
+
+Each written isomer marks its sites as R sites: `X` dummy atoms with an
+`rgroup` number, listed in `atoms.info["r_sites"]` (e.g. `"352:R1 362:R1"`).
 
 ```python
-from ase.io import read
 from cage_isomer_builder.utils.functionalise import functionalise_isomer_sites
+from cage_isomer_builder.utils.sites import read_isomer
 
-isomer = read("isomers/0-4-10-12-16-20.xyz")
-nh2 = read("tests/data/NH2.xyz")   # a small molecule with one "X" dummy atom
-
-decorated = functionalise_isomer_sites(isomer, fragments=nh2)
+isomer = read_isomer("isomers/" + "-".join(map(str, isomers[0])) + ".xyz")
+decorated = functionalise_isomer_sites(isomer, example_data.read("NH2"))
+print(decorated.get_chemical_formula())  # C120H138N6O128Zr24
 ```
 
-### Host-guest docking
-
-Host-guest complexes can be generated to study how isomerisation affects
-adsorption.
+### Several groups, ratios and defects
 
 ```python
-from ase.io import read
-from cage_isomer_builder.utils.functionalise import (
-    max_guests_in_host, place_guest_in_host,
-)
-
-host = read('Cage_molecule.xyz')
-guest = read('guest_molecule.xyz')
-
-n_max = max_guests_in_host(host, guest)
-complexes = place_guest_in_host(host, guest, n_guests=n_max, seed=0)
-print(f"{len(complexes[0].guest_labels)} guests placed inside the cage")
+print(cage.count_rgroup_isomers("AB"))                               # 124464
+print(cage.count_rgroup_isomers(linker_patterns={"A": 3, "B": 3}))   # 3424: 50:50
+print(cage.count_defect_isomers(1, groups="A"))                      # 256: one linker missing
 ```
 
-### Statistics
-
-Summary statistics can be calculated after isomer enumeration. These include
-the number of unique isomers, functional-group pair counts, distance
-distributions, and endo/exo classifications.
-
-```python
-stats = cage.get_statistics(n_kde_bins=200)
-print(f"{stats.n_unique_isomers} unique isomers, "
-      f"{stats.total_fg_pairs} FG-FG pairs "
-      f"({stats.endo_endo_pairs} endo-endo)")
-```
-
-### Functionalise MOFs
-
-Existing MOF structures can be loaded directly from a CIF file. The
-`functionalise()` method finds the available C–H sites on the linkers and
-replaces them with `At` anchor atoms for isomer enumeration. For large unit
-cells, use Burnside's lemma to count the symmetry-unique isomers without
-generating every structure.
+### MOFs
 
 ```python
 from cage_isomer_builder.cage import CageBuilder
 
-mof = CageBuilder.load_from_file("tests/data/RUBTAK01.cif")
+mof = CageBuilder.load_from_file(example_data.path("RUBTAK01"), primitive=True)  # UiO-66
+mof.functionalise()
+print(mof.count_rgroup_isomers("AB"))    # 63528 (space group Fm-3m)
 
-fg_anchors, fg_anchor_indices = mof.functionalise()
-print(f"{len(fg_anchor_indices)} functional-group anchor sites detected")
-
-n_unique = mof.count_unique_isomers_burnside()
-print(f"{n_unique:.3g} symmetry-unique isomers")
-
-first_few = mof.enumerate_isomers(output_path="mof_isomers", limit=10)
+mixed = CageBuilder.load_from_file(example_data.path("ABIXEQ"))   # two kinds of linker
+mixed.functionalise()
+print(mixed.slot_layout().type_names)    # ('C18H18N4', 'C6H4')
+print(mixed.count_rgroup_isomers(groups={"C18H18N4": "A", "C6H4": ""}))   # 4
 ```
 
-The generated files contain the same `At` placeholders used for cage
-isomers, so they can be decorated with real fragments using
-`functionalise_isomer_sites()` as shown above.
+### Descriptors
+
+```python
+print(cage.get_features().counts())      # {'acceptor': 32, 'fg': 24, 'pi': 6}
+descriptor = cage.get_descriptor()       # distances and angles of all feature pairs
+
+ensemble = cage.get_ensemble_descriptor(linker_patterns={("NH2",): 3, ("CH3",): 3},
+                                        by="label", rotation_angles=range(0, 360, 30))
+print(round(ensemble.total(), 3))        # 15.0 NH2/CH3 pairs, averaged over ring rotations
+```
+
+### Host-guest docking
+
+```python
+from cage_isomer_builder.utils.functionalise import max_guests_in_host, place_guest_in_host
+
+host = cage.to_ase(hydrogens=True)       # the pore without R-site markers
+methane = example_data.read("methane")
+print(max_guests_in_host(host, methane, seed=0))     # 4 in the 7.5 A cavity
+best = place_guest_in_host(host, methane, method="energy", n_samples=200, seed=0)[0]
+print(best.atoms.info["interaction_energy"])         # eV (DFT-D4 + UFF repulsion)
+```
 
 ## Topologies
 
-The `cage_isomer_builder.cage` classes can be used to build
-the 29 most common topologies without any manual construction
-of a topology graph. The table below lists the 29 cage topologies
-and the topicity of their nodes and linkers, to make cage building
-easy.
+The `cage_isomer_builder.cage` classes build the 29 most common
+topologies without any manual construction of a topology graph. Each class
+also builds with default inputs (a single `[Zr]` node and an amine linker of
+the right topicity). The table lists the topicity of their nodes and
+linkers.
 
 | Topology | Node topicity | Linker topicity | Nodes × linkers |
 | --- | --- | --- | --- |

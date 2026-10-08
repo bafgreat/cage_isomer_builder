@@ -9,24 +9,31 @@ def stk_2_ase_atoms(stk_atoms,
                     pbc=False
                     ):
     """
-    A function that converts and stk molecular object to an
-    ase atom object.
+    Convert an STK molecule to ASE Atoms and its bond-order matrix.
 
-    Parameter:
+    The bond matrix keeps the bonds of the construction, which matters where
+    bonded atoms are further apart than a covalent-radius cutoff would allow
+    (e.g. before optimisation). STK dummy atoms (At) become ``X``.
+
+    Parameters
     ----------
-        - stk_atoms: stk molecular object
-        - pbc : periodic boundary conditions
-            default is False.
+    stk_atoms : stk.Molecule
+    pbc : bool, default False
+        Periodic boundary conditions of the returned Atoms.
 
-    Return:
+    Returns
+    -------
+    ase_atoms : ase.Atoms
+    bond_matrix : np.ndarray, shape (n_atoms, n_atoms)
+        Bond orders (0 for no bond).
+
+    Examples
     --------
-        - ase_atom:  ase.Atoms
-            ASE atom object
-        - bond_matrix : bond matrix
-            The bond matrix is essential for force field and maintaining
-            correct bonding especially when two bonded atoms are far apart
-            beyond conventional bond cutoff imposed by covalent radii
-
+    >>> import stk
+    >>> from cage_isomer_builder.utils.read_write import stk_2_ase_atoms
+    >>> atoms, bonds = stk_2_ase_atoms(stk.BuildingBlock("NCCN"))
+    >>> atoms.get_chemical_formula(), int(bonds.sum() / 2)       # 3 heavy-atom + 8 X-H bonds
+    ('C2H8N2', 11)
     """
     positions = stk_atoms.get_position_matrix()
     atoms = list(stk_atoms.get_atoms())
@@ -48,13 +55,22 @@ def stk_2_ase_atoms(stk_atoms,
 
 def write_to_xyz(filename, ase_atoms):
     """
-    A function that writes an ase_atoms to xyz
+    Write ``ase_atoms`` to a plain XYZ file (symbols and positions only).
 
-    Parameter:
-        - filename: str
-            name of file to save
-        - ase_atoms : ASE.atoms
-            structure to be written
+    Parameters
+    ----------
+    filename : str
+    ase_atoms : ase.Atoms
+
+    Examples
+    --------
+    >>> import os, tempfile
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.read_write import write_to_xyz
+    >>> path = os.path.join(tempfile.mkdtemp(), "water.xyz")
+    >>> write_to_xyz(path, molecule("H2O"))
+    >>> open(path).read().splitlines()[0]
+    '3'
     """
 
     sym = ase_atoms.symbols
@@ -71,6 +87,63 @@ def write_to_xyz(filename, ase_atoms):
     file.close()
 
 
+def build_isomer_atoms(cage,
+                       fg_anchors,
+                       isomer_descriptor,
+                       fg_anchor_indices,
+                       fg_anchor_h_positions=None,
+                       ):
+    """
+    One single-group isomer as ``ase.Atoms``: the slots in
+    ``isomer_descriptor`` are R1 sites (``X`` with ``"rgroup"`` = 1, see
+    :mod:`cage_isomer_builder.utils.sites`) and every other slot is turned
+    back into its original H.
+
+    Parameters
+    ----------
+    cage : ase.Atoms
+        The structure with every slot marked as a site
+        (``CageBuilder.functionalise``). Not modified.
+    fg_anchors : ase.Atoms
+        The site atoms in slot order, giving each active site's position.
+    isomer_descriptor : list of int
+        Slot indices that are active, e.g. ``[0, 5, 9, 14]``.
+    fg_anchor_indices : list of int
+        Index in ``cage`` of each slot.
+    fg_anchor_h_positions : np.ndarray, shape (n_slots, 3), optional
+        Original H position of each slot. Without it an inactive slot gets
+        an H at 1.09 Angstrom along its C-site direction.
+
+    Examples
+    --------
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.sites import mark_site
+    >>> benzene = molecule("C6H6")
+    >>> h_positions = benzene.positions[6:].copy()
+    >>> for h in range(6, 12):
+    ...     mark_site(benzene, h, 1)
+    >>> slots = list(range(6, 12))
+    >>> from cage_isomer_builder.utils.read_write import build_isomer_atoms
+    >>> isomer = build_isomer_atoms(benzene, benzene[slots], [0, 3], slots, h_positions)
+    >>> isomer.get_chemical_symbols()[6:]          # slots 0 and 3 active, the rest H again
+    ['X', 'H', 'H', 'X', 'H', 'H']
+    """
+    from cage_isomer_builder.utils.sites import mark_site, restore_hydrogen, clear_site
+
+    isomer = cage.copy()
+    active = set(int(i) for i in isomer_descriptor)
+    for slot, i_atom in enumerate(fg_anchor_indices):
+        if slot in active:
+            mark_site(isomer, i_atom, 1, fg_anchors[slot].position)
+        elif fg_anchor_h_positions is not None:
+            clear_site(isomer, i_atom, 'H', fg_anchor_h_positions[slot])
+        else:
+            restore_hydrogen(isomer, i_atom)
+    isomer.info['rgroup_labels'] = 'R1'
+    isomer.info['isomer'] = '-'.join(str(i) for i in isomer_descriptor)
+    return isomer
+
+
 def generate_isomer_structure_file(cage,
                                    fg_anchors,
                                    isomer_descriptor,
@@ -79,63 +152,65 @@ def generate_isomer_structure_file(cage,
                                    fg_anchor_h_positions=None,
                                    ):
     """
-    A function to generate and write an XYZ structure file for a single isomer, placing
-    "At" anchor atoms at the active FG slots defined by the isomer descriptor
-    and restoring every other slot to its original, unfunctionalised H atom.
+    Write one single-group isomer (see :func:`build_isomer_atoms`) to
+    ``<output_path>/<slot>-<slot>-....xyz`` as extended XYZ, with its sites
+    listed in ``info["r_sites"]`` (see
+    :func:`cage_isomer_builder.utils.sites.write_isomer`).
 
+    Returns
+    -------
+    str
+        Path of the written file.
 
-    Parameters
-    ----------
-    cage : ase.Atoms
-        The base cage structure containing all FG anchor slots as At atoms.
-        A copy is made internally so the original is not modified.
-    fg_anchors : ase.Atoms
-        Subset of the cage containing all At anchor atoms with their
-        positions, as returned by functionalise_all_anchors.
-        Used to restore active anchor positions in the isomer.
-    isomer_descriptor : list of int
-        Base-4 isomer descriptor of length n_linkers, where each element
-        is the global FG anchor slot index active on that linker.
-        e.g. [0, 5, 9, 14] activates slots 0, 5, 9, and 14.
-    fg_anchor_indices : list of int
-        Indices of all At anchor atoms in the full cage Atoms object,
-        as returned by functionalise_all_anchors.
-        Used to map from isomer_descriptor indices to cage atom indices.
-    output_path : str
-        Directory path where the XYZ file will be saved.
-        e.g. 'Tet2Di4_isomers/
-    fg_anchor_h_positions : np.ndarray, shape (len(fg_anchor_indices), 3), optional
-        Each anchor's original (pre-extension) hydrogen position, aligned
-        with ``fg_anchor_indices``, as returned by ``full_functionalisation``.
-        Slots not selected in ``isomer_descriptor`` are restored to a real H
-        atom at this position rather than left as an "X" placeholder. If
-        omitted, inactive slots fall back to "X" (legacy behaviour).
+    Examples
+    --------
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.sites import mark_site
+    >>> benzene = molecule("C6H6")
+    >>> h_positions = benzene.positions[6:].copy()
+    >>> for h in range(6, 12):
+    ...     mark_site(benzene, h, 1)
+    >>> slots = list(range(6, 12))
+    >>> import tempfile
+    >>> from cage_isomer_builder.utils.read_write import generate_isomer_structure_file
+    >>> from cage_isomer_builder.utils.sites import read_isomer
+    >>> path = generate_isomer_structure_file(benzene, benzene[slots], [0, 3], slots,
+    ...                                       tempfile.mkdtemp(), h_positions)
+    >>> path.endswith("0-3.xyz"), read_isomer(path).info["r_sites"]
+    (True, {6: 'R1', 9: 'R1'})
     """
+    from cage_isomer_builder.utils.sites import write_isomer
 
-    # Copy cage and mask all anchor slots as inactive - a real H atom back
-    # at its original bond length when we know it, else an X placeholder.
-    isomer = cage.copy()
-    for slot, i_atom in enumerate(fg_anchor_indices):
-        if isomer[i_atom].symbol != 'At':
-            continue
-        if fg_anchor_h_positions is not None:
-            isomer[i_atom].symbol = 'H'
-            isomer[i_atom].position = fg_anchor_h_positions[slot]
-        else:
-            isomer[i_atom].symbol = 'X'
-
-    filename = ""
-    for i_slot in isomer_descriptor:
-        isomer[fg_anchor_indices[i_slot]].symbol = 'At'
-        isomer[fg_anchor_indices[i_slot]].position =\
-            fg_anchors[i_slot].position
-        filename += str(i_slot) + '-'
-
-    # Write to XYZ file named after the isomer descriptor
-    write_to_xyz("{}/{}.xyz".format(output_path, filename[:-1]), isomer)
+    isomer = build_isomer_atoms(cage, fg_anchors, isomer_descriptor,
+                                fg_anchor_indices, fg_anchor_h_positions)
+    name = '-'.join(str(i) for i in isomer_descriptor)
+    return write_isomer("{}/{}.xyz".format(output_path, name), isomer)
 
 
 def write_run(path: str, atoms: Atoms, bonds: np.ndarray) -> None:
+    """
+    Write an AMS geometry-optimisation run script (``Engine DFTB``) with
+    explicit bond orders, for ``atoms`` and its bond-order matrix ``bonds``. The
+    cell is written as ``Lattice`` for periodic structures.
+
+    Parameters
+    ----------
+    path : str or Path
+    atoms : ase.Atoms
+    bonds : np.ndarray, shape (len(atoms), len(atoms))
+        Bond-order matrix (only entries above zero are written).
+
+    Examples
+    --------
+    >>> import os, tempfile
+    >>> import numpy as np
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.read_write import write_run
+    >>> path = os.path.join(tempfile.mkdtemp(), "water.run")
+    >>> write_run(path, molecule("H2O"), np.array([[0, 1, 1], [1, 0, 0], [1, 0, 0]]))
+    >>> "BondOrders" in open(path).read()
+    True
+    """
     path = str(path)
     with open(path, "w") as fileobj:
         fileobj.write("#!/bin/sh\n\n")
@@ -189,8 +264,8 @@ def write_host_guest_complex(complex_, path, lattice="conv", mechanical=False):
     - ``.gin`` -> GULP molecular-mechanics input, via
       ``gulp_setup.mmanalysis.write_gin`` (UFF4MOF atom types assigned by
       ``analyze_mm`` from ``complex_.bond_matrix``). Bond orders are taken
-      from ``complex_.bond_matrix`` exactly, never re-perceived from the
-      merged host+guest geometry - see place_guest_in_host.
+      from ``complex_.bond_matrix``, never re-perceived from the merged
+      host+guest geometry (see place_guest_in_host).
     - ``.run`` -> AMS geometry-optimisation run script, via
       utils.read_write.write_run, same bond matrix.
     - anything else -> plain ``ase.io.write(path, atoms)``. No bond
@@ -208,18 +283,32 @@ def write_host_guest_complex(complex_, path, lattice="conv", mechanical=False):
     lattice : str, default "conv"
         Forwarded to ``write_gin`` for ``.gin`` output. ``"conv"`` for
         constant volume (no cell optimisation), ``"conp"`` for constant
-        pressure (cell optimisation) - only relevant for periodic
+        pressure (cell optimisation); only relevant for periodic
         structures.
     mechanical : bool, default False
-        Forwarded to ``write_gin`` for ``.gin`` output - use its
-        "mechanical properties" input variant instead of the standard
+        Forwarded to ``write_gin`` for ``.gin`` output: use its
+        "mechanical properties" input instead of the standard
         geometry-optimisation one.
 
     Raises
     ------
     TypeError
-        If ``path`` ends in ``.gin`` or ``.run`` but ``complex_`` isn't a
-        HostGuestComplex - there is no bond matrix to write.
+        If ``path`` ends in ``.gin`` or ``.run`` but ``complex_`` is not a
+        HostGuestComplex, which has the bond matrix to write.
+
+    Examples
+    --------
+    >>> import os, tempfile
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.read_write import write_host_guest_complex
+    >>> from cage_isomer_builder.utils.functionalise import HostGuestComplex
+    >>> import numpy as np
+    >>> water = molecule("H2O")
+    >>> complex_ = HostGuestComplex(water, np.array([[0, 1, 1], [1, 0, 0], [1, 0, 0]]), [], [])
+    >>> path = os.path.join(tempfile.mkdtemp(), "complex.run")
+    >>> write_host_guest_complex(complex_, path)          # .gin, .run or any ASE format
+    >>> os.path.exists(path)
+    True
     """
     from pathlib import Path
     suffix = Path(path).suffix.lower()
@@ -227,7 +316,7 @@ def write_host_guest_complex(complex_, path, lattice="conv", mechanical=False):
     if suffix in {".gin", ".run"}:
         if not hasattr(complex_, "bond_matrix"):
             raise TypeError(
-                f"{suffix} output needs bond orders - pass a HostGuestComplex "
+                f"{suffix} output needs bond orders; pass a HostGuestComplex "
                 "(e.g. from place_guest_in_host), not a plain ase.Atoms."
             )
         atoms, bond_matrix = complex_.atoms, complex_.bond_matrix

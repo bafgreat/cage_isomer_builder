@@ -11,10 +11,40 @@ structures, so no vacuum-padded artificial cell or CIF round-trip is
 required.
 """
 
+import importlib.util
+
 import numpy as np
 from ase import Atoms
 
 DEFAULT_METHOD = "GFN2-xTB"
+
+
+def tblite_available() -> bool:
+    """True if the optional tblite package can be imported.
+
+    Examples
+    --------
+    >>> from cage_isomer_builder.utils.tblite_charges import tblite_available
+    >>> isinstance(tblite_available(), bool)
+    True
+    """
+    return importlib.util.find_spec("tblite") is not None
+
+
+def require_tblite() -> None:
+    """Raise a clear ImportError if tblite is not installed.
+
+    Examples
+    --------
+    >>> from cage_isomer_builder.utils.tblite_charges import require_tblite
+    >>> require_tblite()        # returns quietly when tblite is installed, else ImportError
+    """
+    if not tblite_available():
+        raise ImportError(
+            "GFN-xTB needs the tblite package. Install it with "
+            "'pip install cage_isomer_builder[xtb]' (no Windows wheels; on "
+            "Windows use conda-forge or WSL), or use method='UFF4MOF'."
+        )
 
 
 def predict_tblite_charges(
@@ -39,8 +69,17 @@ def predict_tblite_charges(
     np.ndarray, shape (len(atoms),)
         Per-atom partial charges (elementary charge units), neutralised to
         sum to exactly ``charge``.
+
+    Examples
+    --------
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.tblite_charges import predict_tblite_charges
+    >>> q = predict_tblite_charges(molecule("H2O"))          # needs tblite
+    >>> bool(q[0] < 0 < q[1]), round(float(q.sum()), 6)      # O negative, neutral overall
+    (True, 0.0)
     """
-    from tblite.ase import TBLite  # heavy import - keep local
+    require_tblite()
+    from tblite.ase import TBLite  # slow import, kept local
 
     calc_atoms = atoms.copy()
     calc_atoms.pbc = False

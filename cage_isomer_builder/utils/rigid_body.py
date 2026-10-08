@@ -24,11 +24,11 @@ class FixRigidBodies(FixConstraint):
 
     Each group's reference shape (atom positions relative to its
     mass-weighted centroid) never changes; the constrained optimiser may
-    only translate/rotate each group as a whole. Use
-    :meth:`FixRigidBodies.from_atoms` to build one from a live structure -
-    this constructor takes the reference data directly (not an ``Atoms``
-    object) so that ``todict()``/``dict2constraint`` round-trips cleanly,
-    which ASE's ``Trajectory`` writer relies on when appending frames.
+    only translate and rotate each group as a whole. Build one from a
+    structure with :meth:`FixRigidBodies.from_atoms`. The constructor takes
+    the reference data directly (not an ``Atoms`` object) so that
+    ``todict()`` and ``dict2constraint`` round-trip, as ASE's
+    ``Trajectory`` writer requires.
 
     Parameters
     ----------
@@ -39,6 +39,22 @@ class FixRigidBodies(FixConstraint):
     group_ref_rel : sequence of (N, 3) array-like
         Reference positions of each group's atoms relative to its
         mass-weighted centroid, aligned with ``groups``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+    >>> a, b = molecule("H2O"), molecule("H2O")
+    >>> b.translate([3.0, 0.0, 0.0])
+    >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+    >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+    >>> pair.set_constraint(constraint)
+    >>> new = pair.positions.copy()
+    >>> new[1] += [0.3, 0.0, 0.0]                  # try to stretch an O-H bond
+    >>> pair.set_positions(new)                    # the constraint keeps each water rigid
+    >>> round(float(pair.get_distance(0, 1)), 4) == round(float(a.get_distance(0, 1)), 4)
+    True
     """
 
     def __init__(self, groups: Sequence[Sequence[int]], group_masses, group_ref_rel):
@@ -51,11 +67,22 @@ class FixRigidBodies(FixConstraint):
         cls, atoms: Atoms, groups: Sequence[Sequence[int]]
     ) -> "FixRigidBodies":
         """
-        Build from a live structure, capturing each group's current shape.
+        Build from a structure, keeping each group's current shape.
 
-        Groups with fewer than 2 atoms are dropped - a single atom has no
-        internal shape to protect and is already trivially rigid as a free
-        point.
+        Groups with fewer than 2 atoms are dropped: a single atom has no
+        shape to keep.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+        >>> a, b = molecule("H2O"), molecule("H2O")
+        >>> b.translate([3.0, 0.0, 0.0])
+        >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+        >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+        >>> [g.tolist() for g in constraint.group_indices]
+        [[0, 1, 2], [3, 4, 5]]
         """
         masses = atoms.get_masses()
         positions = atoms.get_positions()
@@ -78,9 +105,44 @@ class FixRigidBodies(FixConstraint):
         return cls(kept_groups, kept_masses, kept_ref_rel)
 
     def get_removed_dof(self, atoms):
+        """
+        Degrees of freedom removed: 3N - 6 per rigid group of N atoms
+        (ASE constraint interface).
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+        >>> a, b = molecule("H2O"), molecule("H2O")
+        >>> b.translate([3.0, 0.0, 0.0])
+        >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+        >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+        >>> constraint.get_removed_dof(pair)           # 2 waters x (9 - 6)
+        6
+        """
         return sum(max(0, 3 * len(g) - 6) for g in self.group_indices)
 
     def adjust_positions(self, atoms, new):
+        """
+        Replace ``new`` positions in place by the closest rigid-body move of
+        each group (ASE constraint interface).
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+        >>> a, b = molecule("H2O"), molecule("H2O")
+        >>> b.translate([3.0, 0.0, 0.0])
+        >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+        >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+        >>> new = pair.positions.copy()
+        >>> new[0] += [0.0, 0.0, 0.5]                  # move one atom only
+        >>> constraint.adjust_positions(pair, new)
+        >>> bool(np.isclose(np.linalg.norm(new[0] - new[1]), a.get_distance(0, 1)))
+        True
+        """
         for indices, masses, ref_rel in zip(
             self.group_indices, self.group_masses, self.group_ref_rel
         ):
@@ -96,6 +158,26 @@ class FixRigidBodies(FixConstraint):
         # Newton-Euler rigid-body force projection: keep only the force
         # components that produce net translation/rotation of the group as a
         # whole, discarding anything that would deform it internally.
+        """
+        Replace forces in place by each group's net force and torque, spread
+        back over its atoms as a rigid-body motion (ASE constraint
+        interface).
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+        >>> a, b = molecule("H2O"), molecule("H2O")
+        >>> b.translate([3.0, 0.0, 0.0])
+        >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+        >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+        >>> forces = np.zeros((6, 3))
+        >>> forces[1] = [1.0, 0.0, 0.0]                # push one H only
+        >>> constraint.adjust_forces(pair, forces)
+        >>> round(float(forces[:3].sum(axis=0)[0]), 6)   # the whole water feels the net force
+        1.0
+        """
         positions = atoms.get_positions()
         for indices, masses in zip(self.group_indices, self.group_masses):
             pos = positions[indices]
@@ -119,6 +201,21 @@ class FixRigidBodies(FixConstraint):
             forces[indices] = f_trans + f_rot
 
     def todict(self):
+        """
+        Dictionary form, as used by ASE to store the constraint in a trajectory.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from ase.build import molecule
+        >>> from cage_isomer_builder.utils.rigid_body import FixRigidBodies
+        >>> a, b = molecule("H2O"), molecule("H2O")
+        >>> b.translate([3.0, 0.0, 0.0])
+        >>> pair = a + b                               # two waters, atoms 0-2 and 3-5
+        >>> constraint = FixRigidBodies.from_atoms(pair, [[0, 1, 2], [3, 4, 5]])
+        >>> constraint.todict()["name"]
+        'FixRigidBodies'
+        """
         return {
             "name": "FixRigidBodies",
             "kwargs": {
@@ -133,9 +230,9 @@ class FixRigidBodies(FixConstraint):
         return f"FixRigidBodies(groups={sizes})"
 
 
-# Register with ASE's constraint registry so `dict2constraint` (used by
-# ase.io.trajectory when appending frames) can reconstruct this constraint
-# from its todict() output, exactly like ASE's own built-in constraints.
+# Register with ASE's constraint registry so that `dict2constraint` (used
+# when appending trajectory frames) can rebuild this constraint from
+# todict().
 if "FixRigidBodies" not in _ase_constraints.__all__:
     _ase_constraints.__all__.append("FixRigidBodies")
 _ase_constraints.FixRigidBodies = FixRigidBodies

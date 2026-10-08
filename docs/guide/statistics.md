@@ -1,105 +1,108 @@
 ---
 description: >-
-  What each CageStatistics field means, and how to load them into pandas
-  and plot the FG-FG distance distribution.
+  What each CageStatistics field means, how endo/exo sites are decided, and
+  how to load the FG-FG distance statistics into pandas and plot them.
 ---
 
 # Statistics
 
-Summary statistics can be calculated after isomer enumeration:
+`get_statistics()` summarises the single-group isomers of a structure: the
+isomer count and the distance between every pair of functional-group sites
+on different linkers, split by where the sites point.
 
 ```python
-stats = cage.get_statistics(n_kde_bins=200)
-```
+from cage_isomer_builder import example_data
+from cage_isomer_builder.cage import Tri4Di6CageBuilder
 
-`stats` is a [`CageStatistics`](../reference/cage.md) named tuple with these
-fields:
+cage = Tri4Di6CageBuilder(node=example_data.path("uio66_tri_node"),
+                          linker=example_data.path("bdc"), scale_multiplier=0.225)
+cage.build()
+cage.optimise(include_charges=False, logfile=None)
+cage.functionalise()
+
+stats = cage.get_statistics(n_kde_bins=200)
+print(stats.n_linkers, stats.n_fg_slots, stats.n_unique_isomers)   # 6 24 176
+print(sum(stats.total_fg_pairs))      # 240 site pairs on different linkers
+print(sum(stats.other_pairs))         # 240: every site of this pore is tangential
+```
 
 | Field | Meaning |
 | --- | --- |
-| `n_linkers` | Number of linkers in the cage. |
-| `n_fg_slots` | Total functional-group anchor slots (`n_linkers × 4`). |
-| `n_unique_isomers` | Symmetry-unique isomer count (an `int` - see below). |
-| `distance_keys` | Sorted unique inter-linker FG-to-FG distances (Å). |
-| `total_fg_pairs` | Total active FG pair count at each distance in `distance_keys`. |
-| `endo_endo_pairs` | Of those, pairs where both anchors point inward. |
-| `endo_exo_pairs` | Pairs with one inward and one outward anchor. |
-| `exo_exo_pairs` | Pairs where both anchors point outward. |
-| `kde_x` | Distance grid the KDE was evaluated on (`n_kde_bins` points). |
-| `kde_y` | Smoothed pair-count curve at each `kde_x` - see below. |
+| `n_linkers` | Number of linkers carrying sites. |
+| `n_fg_slots` | Total number of functional-group sites. |
+| `n_unique_isomers` | Symmetry-unique isomers with one group per linker (Burnside's lemma). |
+| `distance_keys` | Sorted distinct site-site distances (A, two decimals). |
+| `total_fg_pairs` | Number of site pairs at each distance. |
+| `endo_endo_pairs` | Of those, pairs where both sites point into the pore. |
+| `endo_exo_pairs` | Pairs with one site pointing in and one out. |
+| `exo_exo_pairs` | Pairs where both sites point out. |
+| `other_pairs` | Pairs involving a tangential (or unclassified) site. The four classes add up to `total_fg_pairs`. |
+| `kde_x` | Distance grid of the smoothed curve (`n_kde_bins` points). |
+| `kde_y` | Smoothed pair counts on `kde_x`. |
 
-`distance_keys`, `total_fg_pairs`, `endo_endo_pairs`, `endo_exo_pairs`, and
-`exo_exo_pairs` are parallel arrays - same length, one entry per distance
-bin. `kde_x`/`kde_y` are a separate pair at their own resolution
-(`n_kde_bins`, independent of how many distinct distances actually occur),
-not aligned with the others.
+## Endo, exo and tangential
 
-## What `kde_x`/`kde_y` actually are
+A site is *endo* when its C-site bond points within 60 degrees of the
+direction to the pore centre, *exo* when it points within 60 degrees of the
+opposite direction, and *tangential* otherwise. In the optimised UiO-66 pore
+every phenylene ring lies face-on to the pore, so all its sites are
+tangential. `get_statistics(threshold=0.5)` sets the cosine limit.
+Periodic structures have no single pore centre: their sites are unclassified
+and pairs are counted per unit cell over all periodic images up to
+`max_distance` (default 20 A).
 
-`distance_keys`/`total_fg_pairs` is already an exact histogram (e.g. "6
-pairs at 5.2 Å, 9 pairs at 8.1 Å"), which as a bar chart gets spiky and hard
-to read once there are many close-together distances. The KDE curve is the
-same information smoothed into one continuous line: each individual pair
-contributes a narrow Gaussian bump (`bandwidth=0.1` Å - narrow enough that
-distinct distances don't blur into each other) centered on its own
-distance, and all the bumps are summed. The result is then rescaled so its
-height matches actual pair counts rather than integrating to 1 (the usual
-KDE convention) - that's why `kde_y` can be plotted on the same axis as
-`total_fg_pairs`, as in the example below.
+```python
+slots = cage.slot_features()
+print(sorted(set(slots.orientation.tolist())))   # ['tangential']
+```
 
-## `n_unique_isomers` vs. `enumerate_isomers()`
+## Counts and the smoothed curve
 
-These compute the same quantity two different ways, and will always agree:
+`distance_keys` and the four class columns are an exact histogram. `kde_y`
+smooths it: each pair adds a narrow Gaussian (0.1 A wide), and the curve is
+scaled so that its values add up to the number of pairs, so it can be drawn
+on the same axis as the counts. For several groups, ratios, missing linkers
+or ring rotations, use [Descriptors](descriptors.md) and
+[Multivariate pores & defects](multivariate.md).
 
-- `cage.enumerate_isomers()` exhaustively walks the raw combinatorial space,
-  groups colorings into symmetry orbits, and returns one representative
-  structure per orbit - so `len(cage.enumerate_isomers())` is a count you
-  get by actually generating every isomer.
-- `stats.n_unique_isomers` (and `cage.count_unique_isomers_burnside()`, which
-  `get_statistics()` calls internally) reaches the same number via Burnside's
-  lemma - a closed-form counting formula - without generating a single
-  structure. Use this when you only need the count and the cage is too large
-  to fully enumerate.
+The per-pair counts are proportional to the average over all placements of
+one group per linker: every pair of sites on different linkers is occupied
+in the same fraction of placements.
 
-## Loading it into pandas
-
-The distance-binned fields are already a tidy table shape - one row per
-distance:
+## In pandas
 
 ```python
 import pandas as pd
 
-df = pd.DataFrame({
+table = pd.DataFrame({
     "distance": stats.distance_keys,
     "total": stats.total_fg_pairs,
     "endo_endo": stats.endo_endo_pairs,
     "endo_exo": stats.endo_exo_pairs,
     "exo_exo": stats.exo_exo_pairs,
+    "other": stats.other_pairs,
 })
-```
-
-The KDE curve gets its own frame:
-
-```python
-kde_df = pd.DataFrame({"distance": stats.kde_x, "density": stats.kde_y})
+curve = pd.DataFrame({"distance": stats.kde_x, "pairs": stats.kde_y})
+print(table.shape)          # one row per distinct distance
 ```
 
 ## Plotting
 
-`cage_isomer_builder` doesn't ship a plotting function - once it's a
-DataFrame, use whatever you'd normally reach for. For example, a stacked bar
-of the endo/exo breakdown with the KDE curve overlaid:
+With matplotlib:
 
 ```python
+import matplotlib
+matplotlib.use("Agg")       # no window needed; leave out in a notebook
 import matplotlib.pyplot as plt
 
-ax = df.set_index("distance")[["endo_endo", "endo_exo", "exo_exo"]].plot.bar(
-    stacked=True, figsize=(8, 4),
-)
-ax.plot(kde_df["distance"], kde_df["density"], color="black", label="KDE")
-ax.set_xlabel("FG-FG distance (Å)")
-ax.set_ylabel("Pair count")
+fig, ax = plt.subplots(figsize=(8, 4))
+bottom = 0
+for column in ("endo_endo", "endo_exo", "exo_exo", "other"):
+    ax.bar(table["distance"], table[column], width=0.08, bottom=bottom, label=column)
+    bottom = bottom + table[column]
+ax.plot(curve["distance"], curve["pairs"], color="black", label="smoothed")
+ax.set_xlabel("FG-FG distance (A)")
+ax.set_ylabel("Pairs")
 ax.legend()
-plt.tight_layout()
-plt.show()
+fig.savefig("fg_distances.png", dpi=150)
 ```

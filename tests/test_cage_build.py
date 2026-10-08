@@ -2,12 +2,10 @@
 Example script: build a cage, enumerate its isomers, and decorate each
 one with real functional groups.
 
-Not a pytest test - it has no test_* functions and asserts nothing, it
-just demonstrates the build/enumerate/functionalise pipeline end to end
-and writes its output to ./isomers and ./isomers_functionalised. Guarded
-under __main__ so pytest importing this file (it matches test_*.py) does
-not also run the full build/optimise/enumerate pipeline as a side effect
-of collection.
+Not a pytest test: it has no test_* functions and asserts nothing. It
+runs the build/enumerate/functionalise pipeline and writes its output to
+./isomers and ./isomers_functionalised. The code is under __main__ so that
+pytest collecting this file (it matches test_*.py) does not run it.
 
 Run directly: python3 tests/test_cage_build.py
 """
@@ -29,10 +27,9 @@ def main() -> None:
     unique_isomers = cage.enumerate_isomers(output_path='isomers')
     print(f'{len(unique_isomers)} unique isomers written to ./isomers')
 
-    # Decorate each isomer's active ("At") sites with real functional groups -
-    # here a 2:1 mix of NH2 and F, chosen randomly per site (seed for
-    # reproducibility). Each fragment carries its own "X" atom marking where it
-    # bonds to the host.
+    # Attach a 2:1 mix of NH2 and F to each isomer's R sites, chosen at
+    # random per site (seeded). Each fragment has an "X" atom marking where
+    # it bonds to the host.
     nh2 = read('./tests/data/NH2.xyz')
     fluoro = Atoms('XF', positions=[
         [-1.35, 0.00, 0.00],

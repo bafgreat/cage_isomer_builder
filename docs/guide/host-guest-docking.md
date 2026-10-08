@@ -1,70 +1,124 @@
 ---
 description: >-
-  Dock guest molecules into a metal-organic cage cavity in Python via
-  Random Sequential Adsorption, including mixed-guest systems and
-  maximum-capacity checks.
+  Find a cage's cavity and windows, check which guests fit, and place guests
+  at random or at their lowest-energy sites (DFT-D4 dispersion), including
+  mixed guests.
 ---
 
 # Host-guest docking
 
-Host-guest complexes can be generated to study how isomerisation affects
-adsorption. Guests are packed into the cage cavity via Random Sequential
-Adsorption (RSA): random position/orientation trials are accepted whenever
-they don't overlap the host or an already-placed guest, until the packing
-jams. See [`_build_guest_packing`](../reference/functionalise.md) for the
-algorithm and its tradeoff against a slower, denser optimisation-based
-packer such as PACKMOL.
-
 ```python
-from ase.io import read
-from cage_isomer_builder.utils.functionalise import (
-    max_guests_in_host, place_guest_in_host,
-)
+from cage_isomer_builder import example_data
+from cage_isomer_builder.cage import Tri4Di6CageBuilder
 
-host = read("cage.xyz")
-guest = read("guest_molecule.xyz")
-
-n_max = max_guests_in_host(host, guest)
-print(f"Maximum number of guests that can fit inside the cage: {n_max}")
-
-complexes = place_guest_in_host(host, guest, n_guests=n_max, seed=0)
-print(f"{len(complexes[0].guest_labels)} guests placed inside the cage")
+cage = Tri4Di6CageBuilder(node=example_data.path("uio66_tri_node"),
+                          linker=example_data.path("bdc"), scale_multiplier=0.225)
+cage.build()
+cage.optimise(include_charges=False, logfile=None)
+host = cage.to_ase()                    # the UiO-66 tetrahedral pore
+methane = example_data.read("methane")
 ```
 
-Every element of `complexes` is a `HostGuestComplex` - a named tuple of
-`(atoms, bond_matrix, guest_atom_indices, guest_labels)`. `bond_matrix`
-carries the host's own bonds (auto-derived from geometry via
-`gulp_setup.mmanalysis.analyze_mm` unless you pass `host_bond_matrix`
-yourself) merged with each placed guest's internal bonds - no bond is ever
-added between host and guest, or between two guest copies, since
-encapsulation is non-covalent.
+Docking needs real atoms: if the cage has been functionalised, attach
+groups first or use `cage.to_ase(hydrogens=True)`. R-site markers (`X`)
+are refused.
+
+## Cavity and windows
+
+The cavity is the largest sphere that fits inside the host (clearance to the
+nearest atom surface, van der Waals radii); a window is a straight opening
+out of it. Both come from `cage_isomer_builder.utils.cavity`:
+
+```python
+from cage_isomer_builder.utils.cavity import largest_window, pore_sphere
+
+centre, diameter = pore_sphere(host)
+print(round(diameter, 1))                      # 7.5 A
+print(round(largest_window(host, centre), 1))  # 4.1 A
+```
+
+A guest whose narrowest cross-section is wider than the largest window
+cannot get in, and is refused before any placement is tried:
+
+```python
+from cage_isomer_builder.utils.functionalise import max_guests_in_host
+
+try:
+    max_guests_in_host(host, example_data.read("ibuprofen"))
+except ValueError as error:
+    print(error)    # ... narrowest cross-section (5.83 A) is larger than ... window (4.10 A) ...
+```
+
+## Random placement
+
+Guests are packed into the cavity by Random Sequential Adsorption: random
+positions and orientations are accepted when no two atoms (host-guest or
+guest-guest) come closer than `overlap_tolerance` (default 0.75) times the
+sum of their van der Waals radii, until the packing jams.
+
+```python
+from cage_isomer_builder.utils.functionalise import place_guest_in_host
+
+print(max_guests_in_host(host, methane, seed=0))    # 4
+complexes = place_guest_in_host(host, methane, n_guests=2, n_complexes=3, seed=0,
+                                host_bond_matrix=cage.get_bond_matrix())
+first = complexes[0]
+print(len(complexes), first.guest_labels)            # 3 [0, 0]
+```
+
+Each complex is a `HostGuestComplex` named tuple `(atoms, bond_matrix,
+guest_atom_indices, guest_labels)`. Its bond matrix is the host's bonds plus
+each guest's own bonds; no bond is added between host and guest. Pass
+`host_bond_matrix` (as above) to use the cage's exact bonds instead of
+perceiving them from the geometry. Asking for more guests than fit caps the
+number, with a warning.
+
+## Lowest-energy sites
+
+`method="energy"` places each guest at its lowest-energy site, scored with
+the DFT-D4 dispersion energy (needs the optional dftd4 package, else UFF
+Lennard-Jones with a warning) plus the repulsive part of UFF's van der
+Waals term:
+
+```python
+best = place_guest_in_host(host, methane, n_guests=1, n_complexes=2, method="energy",
+                           n_samples=300, seed=0)
+for c in best:
+    print(c.atoms.info["dispersion_model"], round(c.atoms.info["interaction_energy"], 3))
+# D4(pbe)+UFF repulsion -0.111   (eV; the complexes come lowest energy first)
+```
+
+1. For each guest, `n_samples` random positions in the cavity are tried in
+   24 orientations each.
+2. The best pose at each of 30 different sites is minimised as a rigid body.
+3. Guests are added one at a time, each at the lowest-energy site left, so
+   guest-guest dispersion counts too.
+4. Each complex is rescored with a full dftd4 calculation (three-body term
+   included) plus the repulsion.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `method` | `"rsa"` | `"rsa"` random placement, `"energy"` lowest-energy sites |
+| `n_samples` | `1000` | random positions tried per guest (energy method) |
+| `contact_scale` | `0.75` | smallest allowed distance, as a fraction of the sum of van der Waals radii (energy method) |
+| `dispersion` | `"auto"` | D4 (PBE) if dftd4 is installed, else UFF; `"uff"`; a D4 method name; or a dict of D4 damping parameters |
+| `overlap_tolerance` | `0.75` | hard-core contact for random placement, fraction of van der Waals radii sums |
 
 ## Mixed guests
 
-Pass a list of guest types (and optionally `ratios`) to dock a mix:
-
 ```python
-complexes = place_guest_in_host(
-    host, [guest_a, guest_b], ratios=[3, 1], n_guests=10, n_complexes=5, seed=0,
-)
+from ase.build import molecule
+
+mixed = place_guest_in_host(host, [methane, molecule("CO2")], ratios=[1, 1],
+                            n_guests=2, seed=0)
+print(sorted(mixed[0].guest_labels))     # [0, 1]: one methane, one CO2
 ```
 
-Each of the `n_complexes` configurations draws a distinct random subset of
-the underlying packing, so no two complexes repeat the same combination of
-guest sites.
-
-## Writing a complex out
-
-`write_host_guest_complex` picks the writer from the output path's
-extension - `.gin` (GULP) and `.run` (AMS) use the complex's bond matrix
-directly; anything else falls back to plain `ase.io.write`:
+## Writing a complex
 
 ```python
 from cage_isomer_builder.utils.read_write import write_host_guest_complex
 
-write_host_guest_complex(complexes[0], "complex_0.gin")
+write_host_guest_complex(first, "complex.gin")   # GULP, with the complex's bonds
+write_host_guest_complex(first, "complex.xyz")   # any ASE format
 ```
-
-See the [API reference](../reference/functionalise.md) for the full
-parameter set of `place_guest_in_host` and `max_guests_in_host`, including
-`overlap_tolerance`, `max_attempts`, and `inner_radius_fraction`.

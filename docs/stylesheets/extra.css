@@ -42,7 +42,7 @@
   --md-typeset-a-color: var(--cib-slate-400);
 }
 
-/* Keep the tab bar the same navy as the header for a seamless brand strip */
+/* Keep the tab bar the same navy as the header */
 .md-tabs {
   background-color: var(--cib-navy-900);
 }

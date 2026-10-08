@@ -11,16 +11,30 @@ def tmp_dir():
     """
     A fresh temporary directory per test, as a Path.
 
-    The test files in this directory predate pytest in this repo (see
-    their own docstrings) and are written as plain scripts whose test_*
-    functions take tmp_dir/db as ordinary parameters, filled in by their
-    own __main__ block. Under pytest, any test function parameter is
-    resolved as a fixture request instead, so this (and db below) exist
-    purely to satisfy that without having to change those functions'
-    signatures.
+    Some test files can also run as plain scripts, where their __main__
+    block passes tmp_dir and db to the test functions. Under pytest these
+    parameters are fixtures, provided here and below.
     """
     with tempfile.TemporaryDirectory() as td:
         yield Path(td)
+
+
+@pytest.fixture(autouse=True)
+def _fail_on_recorded_checks(request):
+    """
+    Script-style test modules record failed checks in a module-level
+    FAILURES list instead of raising. Turn any check that failed during a
+    test into a real pytest failure, so those tests cannot pass unnoticed.
+    """
+    failures = getattr(request.module, "FAILURES", None)
+    if failures is None:
+        yield
+        return
+    already_failed = len(failures)
+    yield
+    new = failures[already_failed:]
+    if new:
+        pytest.fail(f"{len(new)} failed check(s): {new}")
 
 
 @pytest.fixture(scope="session")

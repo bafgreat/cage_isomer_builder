@@ -18,7 +18,7 @@ import numpy as np
 from ase import Atoms
 from ase.optimize import LBFGS
 
-from cage_isomer_builder.utils.tblite_charges import DEFAULT_METHOD
+from cage_isomer_builder.utils.tblite_charges import DEFAULT_METHOD, require_tblite
 
 
 def run_tblite_optimisation(
@@ -29,6 +29,7 @@ def run_tblite_optimisation(
     trajectory: Optional[str] = None,
     charge: float = 0.0,
     method: str = DEFAULT_METHOD,
+    logfile: Optional[str] = "-",
 ) -> tuple[Atoms, np.ndarray]:
     """
     Relax a molecular geometry with ASE using a GFN-xTB (tblite) calculator.
@@ -51,16 +52,28 @@ def run_tblite_optimisation(
         Total charge of the structure.
     method : str, default "GFN2-xTB"
         tblite xTB Hamiltonian to use (e.g. "GFN1-xTB", "GFN2-xTB").
+    logfile : str or None, default "-"
+        Where the optimiser writes its step log: ``"-"`` for the terminal,
+        a file path, or ``None`` for no output.
 
     Returns
     -------
     ase.Atoms
-        Optimised structure (a copy - the input ``atoms`` is not modified).
+        Optimised structure (a copy; the input ``atoms`` is not modified).
     np.ndarray, shape (len(atoms),)
         Per-atom partial charges from the final electronic structure,
         obtained as a byproduct of the last energy/force evaluation.
+
+    Examples
+    --------
+    >>> from ase.build import molecule
+    >>> from cage_isomer_builder.utils.tblite_optimise import run_tblite_optimisation
+    >>> relaxed, charges = run_tblite_optimisation(molecule("H2O"), logfile=None)   # needs tblite
+    >>> round(float(relaxed.get_distance(0, 1)), 2), charges.shape
+    (0.96, (3,))
     """
-    from tblite.ase import TBLite  # heavy import - keep local
+    require_tblite()
+    from tblite.ase import TBLite  # slow import, kept local
 
     if optimizer_cls is None:
         optimizer_cls = LBFGS
@@ -69,7 +82,7 @@ def run_tblite_optimisation(
     opt_atoms.pbc = False
     opt_atoms.calc = TBLite(method=method, charge=charge, verbosity=0)
 
-    opt = optimizer_cls(opt_atoms, trajectory=trajectory)
+    opt = optimizer_cls(opt_atoms, trajectory=trajectory, logfile=logfile)
     opt.run(fmax=fmax, steps=steps)
 
     charges = np.asarray(opt_atoms.calc.get_charges(), dtype=float)

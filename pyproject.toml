@@ -19,12 +19,23 @@ ase = "^3.27.0"
 stk = "^2026.1.4.0"
 mofstructure = "^0.1.8.6"
 scikit-learn = "^1.9.0"
-tblite = "^0.7.0"
+tblite = {version = "^0.7.0", optional = true}
 openmm = "^8.5.2"
 gulp-setup = "^0.1.9"
 spglib = "^2.5"
 pytest = "^9.1.1"
-pywindow = "^0.0.3"
+numba = "^0.68.0"
+dftd4 = {version = "^4.3.0", optional = true}
+matplotlib = "^3.8"
+numpy = ">=2.0"
+scipy = "^1.11"
+rdkit = ">=2024.3"
+
+[tool.poetry.extras]
+# No Windows wheels for these two; the package works without them.
+xtb = ["tblite"]
+d4 = ["dftd4"]
+all = ["tblite", "dftd4"]
 
 [tool.poetry.group.docs]
 optional = true
@@ -37,7 +48,11 @@ mkdocstrings = {extras = ["python"], version = "^0.27"}
 
 
 [tool.pytest.ini_options]
-addopts = "-m 'not slow'"
+# Runs the tests and every docstring example (doctest); tests/data holds
+# helper scripts that must not be imported.
+testpaths = ["tests", "cage_isomer_builder"]
+addopts = "-m 'not slow' --doctest-modules --ignore=tests/data"
+doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
     "slow: builds/optimises a full cage end-to-end (minutes, not seconds) - run explicitly with `pytest -m slow`",
 ]
