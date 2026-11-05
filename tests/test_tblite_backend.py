@@ -43,8 +43,6 @@ def test_small_molecule_optimisation() -> None:
     assert charges.shape == (3,)
     assert np.isfinite(charges).all()
     assert abs(charges.sum()) < 1e-4, f"charges do not sum to ~0: {charges.sum()}"
-    print("test_small_molecule_optimisation passed:",
-          f"E_initial={e_initial:.4f} eV, E_final={e_final:.4f} eV, fmax={fmax:.5f}")
 
 
 def test_rigid_body_constraint() -> None:
@@ -73,8 +71,6 @@ def test_rigid_body_constraint() -> None:
     assert max_shape_drift < 1e-6, (
         f"rigid body internal shape drifted by {max_shape_drift} Angstrom"
     )
-    print("test_rigid_body_constraint passed:",
-          f"max internal shape drift={max_shape_drift:.2e} Angstrom")
 
 
 @pytest.mark.slow
@@ -102,8 +98,6 @@ def test_full_cage_smoke(tmp_dir: Path) -> None:
     out_path = tmp_dir / "tblite_cage_smoke.xyz"
     cage.save(str(out_path))
     assert out_path.exists()
-    print("test_full_cage_smoke passed:",
-          f"{len(optimised)} atoms, charge sum={charges.sum():.4f}")
 
 
 if __name__ == "__main__":

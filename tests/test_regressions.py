@@ -108,3 +108,31 @@ def test_example_data_ships_every_documented_structure() -> None:
         assert example_data.path(name).exists()
     with pytest.raises(KeyError):
         example_data.path("not-a-structure")
+
+
+def test_writers_use_the_optimised_geometry(tmp_path) -> None:
+    """save(), write_gulp_gin() and write_ams_run() used to write the STK
+    construction geometry even after optimise()."""
+    from ase.io import read
+
+    from cage_isomer_builder import example_data
+
+    cage = library.Tri4Di6CageBuilder(node=example_data.path("uio66_tri_node"),
+                                      linker=example_data.path("bdc"), scale_multiplier=0.225)
+    cage.build()
+    optimised = cage.optimise(include_charges=False, logfile=None).positions.copy()
+    cage.functionalise()                       # R-site markers are written as their H
+    expected = cage.to_ase(hydrogens=True)
+    assert np.allclose(expected.positions, optimised)
+
+    cage.save(tmp_path / "cage.pdb")
+    pdb = read(tmp_path / "cage.pdb")
+    assert pdb.get_chemical_symbols() == expected.get_chemical_symbols()
+    assert np.abs(pdb.positions - expected.positions).max() < 1e-3   # PDB keeps 3 decimals
+
+    cage.write_ams_run(tmp_path / "cage.run")
+    text = (tmp_path / "cage.run").read_text()
+    assert "OptimizeLattice" not in text       # a finite cage has no lattice
+    rows = text.split("Atoms\n")[1].split("\nEnd")[0].split("\n")
+    coords = np.array([[float(v) for v in row.split()[1:]] for row in rows if row.strip()])
+    assert np.abs(coords - expected.positions).max() < 1e-6

@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 Geometry optimisation for finite (non-periodic) structures via tblite.
 
@@ -11,6 +8,8 @@ ASE calculator, so any ``ase.optimize`` optimiser and any ``ase.constraints``
 constraint (e.g. :class:`~cage_isomer_builder.utils.rigid_body.FixRigidBodies`)
 work with it unchanged.
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 from typing import Optional
 

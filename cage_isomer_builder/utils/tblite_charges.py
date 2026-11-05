@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 Partial-charge prediction for finite (non-periodic) structures via tblite.
 
-tblite (github.com/tblite/tblite) is a light-weight GFN-xTB implementation.
-Unlike PACMAN-charge, it operates directly on molecular (non-periodic)
-structures, so no vacuum-padded artificial cell or CIF round-trip is
-required.
+tblite (github.com/tblite/tblite) is a light-weight GFN-xTB implementation
+that works directly on molecules, with no periodic cell.
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 import importlib.util
 

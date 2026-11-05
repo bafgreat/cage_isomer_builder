@@ -48,9 +48,7 @@ from ase import Atoms
 from ase.neighborlist import neighbor_list
 
 
-# ---------------------------------------------------------------------------
 # Containers
-# ---------------------------------------------------------------------------
 
 @dataclass
 class PairSet:
@@ -346,9 +344,7 @@ class Descriptor:
         return {k: (len(v), v.total) for k, v in sorted(self.pairs.items())}
 
 
-# ---------------------------------------------------------------------------
 # Building descriptors
-# ---------------------------------------------------------------------------
 
 def feature_type(features, i, by="kind"):
     """
@@ -492,9 +488,12 @@ def pair_descriptor(features, other=None, by="kind", exclude_same_owner=True,
     types_b = types_a if other is None else np.array([feature_type(b, k, by) for k in range(len(b))])
     desc = Descriptor(info={"by": by})
     keys = [pair_key(ta, tb) for ta, tb in zip(types_a[i], types_b[j])]
+    unique_keys = sorted(set(keys))
+    code_of = {key: n for n, key in enumerate(unique_keys)}
+    codes = np.array([code_of[k] for k in keys], dtype=int)
     axis_pair = ~(features.directed[i] & b.directed[j])
-    for key in sorted(set(keys)):
-        m = np.array([k == key for k in keys])
+    for n, key in enumerate(unique_keys):
+        m = codes == n
         folded = axis_pair[m]
         if folded.any() and not folded.all():
             raise ValueError(f"pair type {key} mixes directed and sign-less vectors.")
@@ -568,9 +567,7 @@ def additivity_residual(parts, grid, by="kind", bandwidth=0.1, max_distance=None
     return residual, full.total() - partial_only.total()
 
 
-# ---------------------------------------------------------------------------
 # Smoothing and comparison
-# ---------------------------------------------------------------------------
 
 def kde_1d(pairset, grid, bandwidth=0.1):
     """sum_k w_k N(grid; d_k, bandwidth), in pairs per Angstrom.

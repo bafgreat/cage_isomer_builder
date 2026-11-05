@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 UFF4MOF geometry optimisation, built directly from an explicit bond-order
 matrix rather than distances alone.
@@ -11,9 +8,8 @@ a classical, topology-based force field: every energy term (bond, angle,
 torsion, van der Waals) is enumerated from the bond matrix and an explicit
 per-atom UFF type name, so the intended connectivity from the STK-constructed
 cage is respected exactly even when interatomic distances are atypical
-(bulky multi-atom nodes, expanded cages, ...). This is the tradeoff versus
-xTB: no bond matrix is required for xTB, but it also cannot be told to
-honour one.
+(bulky multi-atom nodes, expanded cages, ...). xTB needs no bond matrix,
+but it also cannot be held to one.
 
 ``UFF4MOFCalculator`` evaluates energies and forces with OpenMM
 (``openmm.CustomBondForce`` / ``CustomAngleForce`` / ``CustomTorsionForce``
@@ -23,6 +19,8 @@ and Coulomb beyond 1-3 neighbours), using the combining rules in
 :mod:`cage_isomer_builder.utils.uff4mof_params`. The energy matches RDKit's
 UFF implementation for organic molecules (see tests/test_uff4mof_backend.py).
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 from collections import Counter
 from typing import Optional
@@ -329,8 +327,11 @@ def run_uff4mof_optimisation(
     >>> round(float(relaxed.get_distance(0, 1)), 2), round(float(relaxed.get_angle(1, 0, 2)), 1)
     (1.11, 109.5)
     """
+    import warnings
+
     from gulp_setup.mmanalysis import analyze_mm
 
+    from cage_isomer_builder.__data__.uff4mof_data import DERIVED_UFF4MOF_DATA, UFF4MOF_DATA
     from cage_isomer_builder.utils.uff4mof_params import load_uff4mof_db
 
     if optimizer_cls is None:
@@ -341,15 +342,12 @@ def run_uff4mof_optimisation(
 
     _, mmtypes = analyze_mm(opt_atoms, bond_order=np.asarray(bond_matrix, dtype=float))
     uff_db = load_uff4mof_db()
-    from cage_isomer_builder.__data__.uff4mof_data import DERIVED_UFF4MOF_DATA
-
     unknown = sorted({str(t) for t in mmtypes if t not in uff_db})
     if unknown:
         raise ValueError(
             f"no UFF4MOF parameters for atom type(s) {unknown} assigned by "
             "gulp_setup; use method='GFN2-xTB' for this structure."
         )
-    from cage_isomer_builder.__data__.uff4mof_data import UFF4MOF_DATA
 
     published = {tuple(v) for v in UFF4MOF_DATA.values()}
     # Derived types identical to a published one (O_HH = O_3, H_OH = H_,
@@ -357,7 +355,6 @@ def run_uff4mof_optimisation(
     derived = sorted({str(t) for t in mmtypes if t in DERIVED_UFF4MOF_DATA
                       and tuple(DERIVED_UFF4MOF_DATA[t]) not in published})
     if derived:
-        import warnings
         warnings.warn(
             f"UFF4MOF type(s) {derived} have no published parameter set; using "
             "parameters derived from the same element's type (see "

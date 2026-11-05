@@ -1,7 +1,7 @@
 site_name: Cage Isomer Builder
 site_description: >-
-  A comprehensive Python library for building, enumerating, and
-  functionalising metal-organic cage and framework (MOF) isomers.
+  Build metal-organic cages, functionalise cages and MOFs, and enumerate
+  their symmetry-unique isomers.
 site_url: https://bafgreat.github.io/cage_isomer_builder/
 repo_name: bafgreat/cage_isomer_builder
 repo_url: https://github.com/bafgreat/cage_isomer_builder
@@ -89,6 +89,8 @@ nav:
       - R sites: reference/sites.md
       - R-group isomers: reference/rgroup.md
       - Isomer counting: reference/isomer-counting.md
+      - Vertex codes: reference/vertex-codes.md
+      - Command line: reference/cli.md
       - Point groups: reference/pointgroup.md
       - Symmetry libraries: reference/symmetry.md
       - Features: reference/features.md

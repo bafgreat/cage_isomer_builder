@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-from __future__ import print_function
+"""
+Symmetry operations as permutations of the functional-group sites: the
+per-topology point-group libraries, the library derived from node centres
+and, for periodic structures, the space group from spglib.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
@@ -9,9 +13,7 @@ from itertools import permutations
 from cage_isomer_builder.utils import geometry
 
 
-# ---------------------------------------------------------------------------
 # Private helpers
-# ---------------------------------------------------------------------------
 
 # Standard coset generators for D_nh symmetry:  E, σh, σv, σh·σv
 _DIHEDRAL_COSETS = [
@@ -105,9 +107,7 @@ def _oh_library(fg_anchor):
     return list(zip(*transformation_lib))
 
 
-# ---------------------------------------------------------------------------
 # Public API: one function per cage topology
-# ---------------------------------------------------------------------------
 
 def tet2di4_transformation_library(fg_anchor):
     """
@@ -378,11 +378,7 @@ def tri8di12_transformation_library(fg_anchor):
 
 def _axis_rotation(axis, degrees):
     """3x3 rotation (row-vector convention: x' = x @ R) about ``axis``."""
-    a = np.asarray(axis, dtype=float)
-    a /= np.linalg.norm(a)
-    t = np.radians(degrees)
-    k = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
-    return (np.eye(3) + np.sin(t) * k + (1 - np.cos(t)) * k @ k).T
+    return _axis_rotation_matrix(axis, degrees).T
 
 
 def _matrix_group_library(fg_anchor, generators):
@@ -435,9 +431,7 @@ def tri20di30_transformation_library(fg_anchor):
     ])
 
 
-# ---------------------------------------------------------------------------
 # Aliases: same symmetry group, different topology name
-# ---------------------------------------------------------------------------
 
 def tet6tri8_transformation_library(fg_anchor):
     """
@@ -499,14 +493,13 @@ def tri2_2tri2_transformation_library(fg_anchor):
     return _zrotation_library(fg_anchor, n_fold=2)
 
 
-# ---------------------------------------------------------------------------
 # Universal (geometry-derived) library
-# ---------------------------------------------------------------------------
 
 _PHI = (1 + 5 ** 0.5) / 2
 
 
 def _axis_rotation_matrix(axis, degrees):
+    """3x3 rotation (column-vector convention: x' = R @ x) about ``axis``."""
     a = np.asarray(axis, dtype=float)
     a = a / np.linalg.norm(a)
     t = np.radians(degrees)

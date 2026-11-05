@@ -84,7 +84,6 @@ def test_k_matches_brute_force_on_random_groups() -> None:
                 f"trial={trial} n_linkers={n_linkers} fg_per_linker={fg_per_linker} "
                 f"k={k}: burnside={fast} brute={brute}"
             )
-    print("test_k_matches_brute_force_on_random_groups passed")
 
 
 def test_k1_reproduces_count_unique_isomers() -> None:
@@ -99,7 +98,6 @@ def test_k1_reproduces_count_unique_isomers() -> None:
         )
         legacy = count_unique_isomers(group, n_linkers, n_fg_slots, fg_per_linker)
         assert k1 == legacy, f"trial={trial}: k=1 gave {k1}, legacy gave {legacy}"
-    print("test_k1_reproduces_count_unique_isomers passed")
 
 
 def test_complement_and_edge_identities() -> None:
@@ -123,7 +121,6 @@ def test_complement_and_edge_identities() -> None:
             assert counts[k] == counts[fg_per_linker - k], (
                 f"trial={trial} k={k}: {counts[k]} != {counts[fg_per_linker - k]}"
             )
-    print("test_complement_and_edge_identities passed")
 
 
 def test_identity_only_group_gives_binomial_power() -> None:
@@ -136,7 +133,6 @@ def test_identity_only_group_gives_binomial_power() -> None:
             [], n_linkers, n_fg_slots, fg_per_linker, active_per_linker=k
         )
         assert n == math.comb(fg_per_linker, k) ** n_linkers
-    print("test_identity_only_group_gives_binomial_power passed")
 
 
 def test_invalid_k_raises() -> None:
@@ -144,7 +140,6 @@ def test_invalid_k_raises() -> None:
         count_unique_isomers_k([], 2, 8, 4, active_per_linker=5)
     with pytest.raises(ValueError):
         count_unique_isomers_k([], 2, 8, 4, active_per_linker=-1)
-    print("test_invalid_k_raises passed")
 
 
 if __name__ == "__main__":

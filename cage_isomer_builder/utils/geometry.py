@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Geometry helpers: rotations, bonded pairs, fragment alignment and the
+permutation an operation induces on a set of sites.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
@@ -423,6 +427,7 @@ def translate_fragment(host_system, sub_fragment, sub_neigh, host_x):
     translation_vector = host_system[host_x].position - sub_fragment[sub_neigh].position
     sub_fragment.positions += translation_vector
     return sub_fragment
+
 
 def reflect_positions(ase_atom, reflection_normal):
     """

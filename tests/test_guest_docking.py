@@ -60,7 +60,6 @@ def test_max_guests_in_host_finds_a_real_capacity() -> None:
         warnings.simplefilter("ignore")
         n_max = max_guests_in_host(host, guest)
     assert 0 < n_max <= 8, f"a 7.5 A cavity holds a few methanes, not {n_max}"
-    print(f"test_max_guests_in_host_finds_a_real_capacity passed: n_max={n_max}")
 
 
 def test_place_guest_in_host_respects_n_guests() -> None:
@@ -74,7 +73,6 @@ def test_place_guest_in_host_respects_n_guests() -> None:
     for complex_ in complexes:
         assert len(complex_.guest_labels) == 1
         assert len(complex_.guest_atom_indices) == len(guest)
-    print("test_place_guest_in_host_respects_n_guests passed")
 
 
 def test_complexes_are_distinct_and_well_spread() -> None:
@@ -90,7 +88,6 @@ def test_complexes_are_distinct_and_well_spread() -> None:
     coms = [c.atoms.positions[c.guest_atom_indices].mean(axis=0) for c in complexes]
     unique = {tuple(np.round(com, 2)) for com in coms}
     assert len(unique) == len(coms), f"expected {len(coms)} distinct positions, got {unique}"
-    print("test_complexes_are_distinct_and_well_spread passed:", coms)
 
 
 def test_returns_host_guest_complex_with_consistent_bond_matrix() -> None:
@@ -111,7 +108,6 @@ def test_returns_host_guest_complex_with_consistent_bond_matrix() -> None:
     # two different guest copies: encapsulation is non-covalent.
     cross_block = complex_.bond_matrix[:n_host, n_host:]
     assert not np.any(cross_block), "host-guest cross terms must stay zero"
-    print("test_returns_host_guest_complex_with_consistent_bond_matrix passed")
 
 
 def test_n_guests_beyond_capacity_warns_and_caps() -> None:
@@ -126,8 +122,6 @@ def test_n_guests_beyond_capacity_warns_and_caps() -> None:
 
     assert len(complexes[0].guest_labels) <= n_max
     assert any("capping" in str(w.message) for w in caught)
-    print("test_n_guests_beyond_capacity_warns_and_caps passed:",
-          f"requested {n_max + 50}, got {len(complexes[0].guest_labels)}")
 
 
 def test_write_host_guest_complex_formats(tmp_dir: Path) -> None:
@@ -148,7 +142,6 @@ def test_write_host_guest_complex_formats(tmp_dir: Path) -> None:
     except TypeError:
         raised = True
     assert raised, "plain ase.Atoms with a .gin path should raise TypeError"
-    print("test_write_host_guest_complex_formats passed")
 
 
 def test_energy_method_finds_the_best_site() -> None:

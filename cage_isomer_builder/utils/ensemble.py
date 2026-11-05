@@ -90,9 +90,7 @@ def vacancy_pattern(fg_per_linker):
     return tuple([VACANCY] * fg_per_linker)
 
 
-# ---------------------------------------------------------------------------
 # Label-pair probabilities
-# ---------------------------------------------------------------------------
 
 def _composition_matrix(spec):
     """C[P, a] = number of slots of label a+1 in pattern P."""
@@ -134,7 +132,7 @@ class LabelProbabilities:
         if mode not in ("fixed", "independent"):
             raise ValueError(f"mode={mode!r}; use 'fixed' or 'independent'.")
         self.mode = mode
-        self.C = np.array(spec.patterns, dtype=float).reshape(len(spec.patterns), len(spec.labels))
+        self.C = _composition_matrix(spec)
         self.types = np.array(spec.pattern_types)
         counts = np.array(spec.pattern_counts, dtype=float)
         self.counts = counts
@@ -301,9 +299,7 @@ def single_label_probabilities(spec, mode="fixed", fractions=None):
     return LabelProbabilities(spec, spec.layout, mode, fractions).single(0)
 
 
-# ---------------------------------------------------------------------------
 # Descriptors
-# ---------------------------------------------------------------------------
 
 def _slot_samples(slot_features, positions, vectors, orientations, sample_weights):
     n = len(slot_features)
@@ -364,8 +360,11 @@ def _add_slot_pair(desc, x, y, probs, names, by, pos, vec, ori, sw, rotor, direc
                 continue
             keys = [pair_key(_type_name(names[a], o1, by), _type_name(names[b], o2, by))
                     for o1, o2 in zip(ox, oy)]
-            for key in sorted(set(keys)):
-                m = np.array([k == key for k in keys])
+            unique_keys = sorted(set(keys))
+            code_of = {key: n for n, key in enumerate(unique_keys)}
+            codes = np.array([code_of[k] for k in keys], dtype=int)
+            for n, key in enumerate(unique_keys):
+                m = codes == n
                 desc.add(key, PairSet(d[m], ang[m], w_s[m] * p))
 
 
@@ -637,9 +636,7 @@ def boltzmann_weights(energies, temperature=298.15, unit="eV"):
     return w / w.sum()
 
 
-# ---------------------------------------------------------------------------
 # Ratios
-# ---------------------------------------------------------------------------
 
 def ratio_series(slot_features, fg_per_linker, labels=("A", "B"), by="orientation",
                  include_same_linker=False, max_distance=None, linker_type=None,

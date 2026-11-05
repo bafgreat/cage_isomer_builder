@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Attaching fragments at R sites and docking guests into a host.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 

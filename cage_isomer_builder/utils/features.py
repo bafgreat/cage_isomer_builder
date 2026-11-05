@@ -82,9 +82,7 @@ def is_metal(z):
     return int(z) not in _NON_METALS
 
 
-# ---------------------------------------------------------------------------
 # Container
-# ---------------------------------------------------------------------------
 
 @dataclass
 class FeatureSet:
@@ -255,9 +253,7 @@ class FeatureSet:
         return dict(zip(kinds.tolist(), n.tolist()))
 
 
-# ---------------------------------------------------------------------------
 # Bond graph
-# ---------------------------------------------------------------------------
 
 def _unit(v):
     n = np.linalg.norm(v)
@@ -347,9 +343,7 @@ def adjacency_from_bond_matrix(atoms, bond_matrix):
     return adjacency
 
 
-# ---------------------------------------------------------------------------
 # Rings
-# ---------------------------------------------------------------------------
 
 def find_rings(atoms, adjacency=None, sizes=(5, 6)):
     """
@@ -434,9 +428,7 @@ def aromatic_rings(atoms, adjacency=None, planarity=0.15):
             if ring_geometry(atoms, r)[2] < planarity]
 
 
-# ---------------------------------------------------------------------------
 # Detectors
-# ---------------------------------------------------------------------------
 
 def _owner_lookup(owners):
     if owners is None:
@@ -741,8 +733,9 @@ def fg_features(atoms, slot_indices=None, adjacency=None, owners=None, centre=No
         adjacency = bond_graph(atoms)
     owner = _owner_lookup(owners)
     if centre is None and not atoms.pbc.any():
+        slot_set = set(slot_indices)
         heavy = [i for i in range(len(atoms))
-                 if atoms.numbers[i] > 1 and i not in set(slot_indices)]
+                 if atoms.numbers[i] > 1 and i not in slot_set]
         centre = atoms.positions[heavy].mean(axis=0)
     rg = site_array(atoms)
     carbons = []

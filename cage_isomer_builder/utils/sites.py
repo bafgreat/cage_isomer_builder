@@ -222,16 +222,24 @@ def write_isomer(path, atoms):
     --------
     >>> import os, tempfile
     >>> from ase.build import molecule
-    >>> from cage_isomer_builder.utils.sites import mark_site, write_isomer
+    >>> from cage_isomer_builder.utils.sites import mark_site, read_isomer, write_isomer
     >>> benzene = molecule("C6H6")
     >>> mark_site(benzene, 6, 1)
     >>> path = write_isomer(os.path.join(tempfile.mkdtemp(), "iso.xyz"), benzene)
     >>> from ase.io import read                      # a plain reader works too
     >>> read(path).info["r_sites"]
     '6:R1'
+    >>> path = write_isomer(os.path.join(tempfile.mkdtemp(), "bare.xyz"), molecule("C6H6"))
+    >>> read_isomer(path).info["r_sites"]            # no sites: an empty map
+    {}
     """
     out = atoms.copy()
-    out.info[SITE_INFO] = format_site_map(site_map(atoms))
+    # An empty value would make the extxyz reader swallow the next key.
+    mapping = format_site_map(site_map(atoms))
+    if mapping:
+        out.info[SITE_INFO] = mapping
+    else:
+        out.info.pop(SITE_INFO, None)
     if SITE_ARRAY not in out.arrays:
         out.set_array(SITE_ARRAY, np.array(
             [1 if s == SITE_SYMBOL else 0 for s in out.get_chemical_symbols()], dtype=int))

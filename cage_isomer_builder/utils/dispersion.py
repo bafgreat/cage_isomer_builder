@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 Dispersion energies for host-guest placement: DFT-D4 (needs the optional
 dftd4 package), or the UFF Lennard-Jones term, which needs nothing extra.
@@ -25,10 +22,10 @@ wall until it hits whatever distance limit is set. So the repulsive half of
 the UFF Lennard-Jones term, D*(x/r)^12 with UFF4MOF's per-element x and D,
 is added to every pair. Checked against GFN2-xTB on a Tri4Di6 cage: D4 with
 only a distance limit put methane 2.0 A from node oxygens, while D4 plus
-this repulsion gave 3.1 A contacts and the sites GFN2-xTB rates best. The three-body term and the small
-changes in coordination number are left out of this fast score; the final
-placements are rescored with a full dftd4 call
-(:func:`d4_interaction_energy`).
+this repulsion gave 3.1 A contacts and the sites GFN2-xTB rates best. The
+three-body term and the small changes in coordination number are left out
+of this fast score; the final placements are rescored with a full dftd4
+call (:func:`d4_interaction_energy`).
 
 Without dftd4 (it has no Windows wheels), :func:`pair_model` falls back to
 the UFF Lennard-Jones term, E = D*((x/r)^12 - 2*(x/r)^6), with UFF4MOF's
@@ -36,10 +33,12 @@ per-element x and D and geometric-mean mixing. It has its own repulsion and
 needs no rescoring, since the pair sum is the whole energy.
 
 The caller also supplies a minimum allowed distance for every atom pair,
-as a hard safety limit. Closer pairs add a steep penalty, so a search can push a
-clashing pose out instead of throwing it away, and the kernel reports how
-far inside the limit the worst pair is.
+as a hard safety limit. Closer pairs add a steep penalty, so a search can
+push a clashing pose out instead of throwing it away, and the kernel
+reports how far inside the limit the worst pair is.
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 import importlib.util
 import warnings

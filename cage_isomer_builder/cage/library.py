@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+One cage builder per topology. Each sets the STK topology graph, the
+number of connection points of its node and, where one exists, its
+hand-written symmetry library for ``symmetry_method="topology"``.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
@@ -7,9 +12,7 @@ from cage_isomer_builder.cage.base import CageBuilder, _TwoPlusThree, _ThreePlus
 from cage_isomer_builder.utils import symmetry
 
 
-# ============================================================================
-#  Tet topology classes
-# ============================================================================
+# Tet topology classes
 
 class Tet2Di4CageBuilder(CageBuilder):
     """Tet2Di4: 2 tetratopic nodes + 4 ditopic linkers (TwoPlusFour). Point group D4h.
@@ -177,9 +180,7 @@ class Tet24Di48CageBuilder(CageBuilder):
         return symmetry.tet24di48_transformation_library(fg_anchors)
 
 
-# ============================================================================
-#  Tri topology classes
-# ============================================================================
+# Tri topology classes
 
 class Tri2Di3CageBuilder(CageBuilder):
     """Tri2Di3: 2 tritopic (triamine) nodes + 3 ditopic linkers (_TwoPlusThree). Point group D3h.
@@ -309,9 +310,7 @@ class Tri20Di30CageBuilder(CageBuilder):
         return symmetry.tri20di30_transformation_library(fg_anchors)
 
 
-# ============================================================================
-#  Tet+Tri topology classes
-# ============================================================================
+# Tet+Tri topology classes
 
 class Tet6Tri8CageBuilder(CageBuilder):
     """
@@ -342,9 +341,7 @@ class Tet6Tri8CageBuilder(CageBuilder):
         )
 
 
-# ============================================================================
-#  Tri+Tri topology classes
-# ============================================================================
+# Tri+Tri topology classes
 
 class Tri4Tri4CageBuilder(CageBuilder):
     """
@@ -433,15 +430,12 @@ class Tri2_2Tri2CageBuilder(CageBuilder):
         )
 
 
-# ============================================================================
-#  MxLy metal-organic cage classes
-#
-#  The node fg count is the metal vertex degree of the STK topology graph,
-#  which is not always 4. Topologies with more than 8 metal nodes have no
-#  library for symmetry_method="topology": the node-permutation search of
-#  universal_transformation_library is only practical up to 8! = 40320.
-#  Their isomers are counted from the detected point group (the default).
-# ============================================================================
+# MxLy metal-organic cages.
+# The node fg count is the metal vertex degree of the STK topology graph,
+# which is not always 4. Topologies with more than 8 metal nodes have no
+# library for symmetry_method="topology": the node-permutation search of
+# universal_transformation_library is only practical up to 8! = 40320.
+# Their isomers are counted from the detected point group (the default).
 
 class M2L4LanternCageBuilder(CageBuilder):
     """M2L4Lantern: 2 tetratopic nodes + 4 ditopic linkers. Point group D4h.
@@ -610,7 +604,8 @@ class M9L18CageBuilder(CageBuilder):
 
     def _get_point_group_transformation_library(self, fg_anchors):
         raise NotImplementedError(
-            "symmetry_method='topology' has no library for M9L18 (9 node centres exceeds universal_transformation_library's 8-node limit); "
+            "symmetry_method='topology' has no library for M9L18: 9 node centres "
+            "are more than universal_transformation_library can search (8); "
             "use the default symmetry_method='detect'."
         )
 
@@ -639,7 +634,8 @@ class TenPlusTwentyCageBuilder(CageBuilder):
 
     def _get_point_group_transformation_library(self, fg_anchors):
         raise NotImplementedError(
-            "symmetry_method='topology' has no library for TenPlusTwenty (10 node centres exceeds universal_transformation_library's 8-node limit); "
+            "symmetry_method='topology' has no library for TenPlusTwenty: 10 node centres "
+            "are more than universal_transformation_library can search (8); "
             "use the default symmetry_method='detect'."
         )
 
@@ -668,6 +664,7 @@ class TwelvePlusThirtyCageBuilder(CageBuilder):
 
     def _get_point_group_transformation_library(self, fg_anchors):
         raise NotImplementedError(
-            "symmetry_method='topology' has no library for TwelvePlusThirty (12 node centres exceeds universal_transformation_library's 8-node limit); "
+            "symmetry_method='topology' has no library for TwelvePlusThirty: 12 node centres "
+            "are more than universal_transformation_library can search (8); "
             "use the default symmetry_method='detect'."
         )

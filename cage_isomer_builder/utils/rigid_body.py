@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 ASE constraint that treats groups of atoms as rigid bodies.
 
 Used to relax a cage's inter-SBU placement (node-to-linker distances/angles)
 while keeping every SBU's own internal geometry exactly as supplied.
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 from typing import Sequence
 
@@ -155,9 +154,6 @@ class FixRigidBodies(FixConstraint):
             new[indices] = trial_centroid + rotation.apply(ref_rel)
 
     def adjust_forces(self, atoms, forces):
-        # Newton-Euler rigid-body force projection: keep only the force
-        # components that produce net translation/rotation of the group as a
-        # whole, discarding anything that would deform it internally.
         """
         Replace forces in place by each group's net force and torque, spread
         back over its atoms as a rigid-body motion (ASE constraint
@@ -178,6 +174,9 @@ class FixRigidBodies(FixConstraint):
         >>> round(float(forces[:3].sum(axis=0)[0]), 6)   # the whole water feels the net force
         1.0
         """
+        # Newton-Euler rigid-body force projection: keep only the force
+        # components that produce net translation/rotation of the group as a
+        # whole, discarding anything that would deform it internally.
         positions = atoms.get_positions()
         for indices, masses in zip(self.group_indices, self.group_masses):
             pos = positions[indices]

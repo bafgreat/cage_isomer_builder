@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-from __future__ import print_function
+"""
+Isomer counting with one or k groups per linker (Burnside's lemma),
+enumeration of the single-group isomers, and distance-histogram helpers.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
@@ -459,31 +462,25 @@ def convert_base4_to_base10(isomer_descriptor,
                             n_linkers,
                             fg_per_linker=4):
     """
-    Convert a base-4 isomer descriptor into an integer index.
+    Integer index of an isomer descriptor (one active slot per linker).
 
-    Each element of the isomer descriptor encodes the rotational state
-    (0-3) of a functional group anchor on a given linker. The decimal
-    index is computed as a base-4 number where each digit corresponds
-    to the rotational state of one linker.
+    The local slot of linker i, ``r_i = isomer_descriptor[i] % fg_per_linker``,
+    is digit i of a base-``fg_per_linker`` number, most significant first.
+    For four linkers with four slots each:
 
-    Schematically for n_linkers = 4:
-        isomer_descriptor = [slot_0, slot_1, slot_2, slot_3]
         decimal_index = r0 * 4^3 + r1 * 4^2 + r2 * 4^1 + r3 * 4^0
-        where r_i = isomer_descriptor[i] % 4  (rotational state of linker i)
 
-    This is the inverse of convert_base10_to_base4.
+    This is the inverse of :func:`convert_base10_to_base4`.
 
     Parameters
     ----------
     isomer_descriptor : list of int
-        Base-4 isomer descriptor of length n_linkers, where each element
-        is the global FG anchor slot index active on that linker.
-        The rotational state of linker i is recovered as
-        isomer_descriptor[i] % 4, giving a value in range 0-3.
-        e.g. [0, 5, 9, 14] for a cage with 4 linkers.
+        The active slot of each linker, as a global slot index, e.g.
+        ``[0, 5, 9, 14]`` for four linkers.
     n_linkers : int
-        Number of linkers in the cage. Determines the number of base-4
-        digits and the positional weight of each digit.
+        Number of linkers (number of digits).
+    fg_per_linker : int, default 4
+        Slots per linker (the base).
 
     Returns
     -------
@@ -509,37 +506,27 @@ def convert_base4_to_base10(isomer_descriptor,
 
 def convert_base10_to_base4(decimal_index, n_linkers, fg_per_linker=4):
     """
-    Convert a base-10 (decimal) integer index into a base-4 isomer descriptor.
+    Isomer descriptor of an integer index (the inverse of
+    :func:`convert_base4_to_base10`).
 
-    The decimal index is decomposed into base-4 digits by successive division,
-    where each digit represents the rotational state (0-3) of one linker.
-    The digits are then converted into global FG anchor slot indices by
-    adding the linker offset (linker_index * 4).
-
-    Schematically for n_linkers = 4:
-        decimal_index = 18
-        base-4 digits = [0, 1, 0, 2]  (most to least significant)
-        isomer_descriptor = [0*4+0, 1*4+1, 2*4+0, 3*4+2]
-                          = [0, 5, 8, 14]
-
-    This is the inverse of convert_base4_to_base10.
+    The index is split into base-``fg_per_linker`` digits, most significant
+    first, and digit i becomes the global slot ``i * fg_per_linker + digit``.
+    For four linkers with four slots each, 18 has the digits 0, 1, 0, 2 and
+    gives ``[0, 5, 8, 14]``.
 
     Parameters
     ----------
     decimal_index : int
-        Index of the descriptor, from 0 to fg_per_linker**n_linkers - 1.
+        Index of the descriptor, from 0 to ``fg_per_linker ** n_linkers - 1``.
     n_linkers : int
-        Number of linkers in the cage. Determines the number of base-4
-        digits and the global slot index offset for each linker.
+        Number of linkers (number of digits).
+    fg_per_linker : int, default 4
+        Slots per linker (the base).
 
     Returns
     -------
     isomer_descriptor : list of int
-        Base-4 isomer descriptor of length n_linkers, where each element
-        is the global FG anchor slot index active on that linker.
-        The rotational state of linker i is recovered as
-        isomer_descriptor[i] % 4, giving a value in range 0-3.
-        e.g. decimal_index=18, n_linkers=4 -> [0, 5, 8, 14]
+        The active slot of each linker, as a global slot index.
 
     Examples
     --------
@@ -654,7 +641,6 @@ def is_higher_greater(isomer_descriptor_1,
     bool
         True if isomer_descriptor_1 is lexicographically greater than
         isomer_descriptor_2, False otherwise (including when equal).
-
 
     Examples
     --------

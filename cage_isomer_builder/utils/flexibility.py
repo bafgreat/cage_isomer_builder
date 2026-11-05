@@ -308,9 +308,7 @@ def rotation_samples(atoms, rotors, slot_indices, angles, centre=None, threshold
     return positions, vectors, orientations, rotor_of_slot
 
 
-# ---------------------------------------------------------------------------
 # Scaling
-# ---------------------------------------------------------------------------
 
 def scale_structure(atoms, groups, factor, centre=None):
     """

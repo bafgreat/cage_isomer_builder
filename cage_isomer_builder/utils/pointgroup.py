@@ -248,9 +248,7 @@ def detect_point_group(atoms, tol=0.3, min_radius=1.0):
     return PointGroup(_schoenflies(rotations), rotations, atom_perms, centre, max_dev)
 
 
-# ---------------------------------------------------------------------------
 # Naming
-# ---------------------------------------------------------------------------
 
 def _axis_and_order(rot):
     """Axis and order of the proper part of an orthogonal matrix."""
@@ -329,9 +327,7 @@ def _schoenflies(rotations):
     return f'S{2 * n}'
 
 
-# ---------------------------------------------------------------------------
 # Reference atoms
-# ---------------------------------------------------------------------------
 
 _TRANSITION_METALS = frozenset(
     list(range(21, 31)) + list(range(39, 49)) + list(range(57, 81)) + list(range(89, 113))
@@ -383,9 +379,7 @@ def reference_indices(atoms, reference="auto"):
     raise ValueError(f"reference={reference!r}; use 'auto', 'metals', 'heavy' or 'all'.")
 
 
-# ---------------------------------------------------------------------------
 # FG slots
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SlotSymmetry:

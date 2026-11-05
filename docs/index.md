@@ -25,6 +25,9 @@ lightweight tool for generating host-guest docked complexes for finite cages.
   topology, including Ih and D5h cages
 - Count and enumerate isomers with two or more different functional groups
   (R1, R2, ...)
+- Name isomers by vertex codes (what each node sees of the groups on its
+  linkers) and convert between vertex names and site names, in Python or
+  with the `cage-vertex-name` command
 - Functionalise cages and MOFs by attaching real fragments to one, several,
   or all active sites, with control over the distribution by ratio
 - Dock guest molecules into finite cages, including mixed-guest systems and

@@ -14,6 +14,7 @@ Full documentation, including a complete API reference: **[docs](https://bafgrea
 - Generate symmetry-unique isomers for finite cages using point-group methods, and for periodic MOFs using space-group methods based on spglib
 - Find the point group of a finite cage from its atoms, so it works for any topology, including Ih and D5h cages
 - Count and enumerate isomers with two or more different functional groups (R1, R2, ...)
+- Name isomers by vertex codes (what each node sees of the groups on its linkers), convertible back to site indices; every isomer file records which linkers meet at each vertex
 - Functionalise cages and MOFs by attaching real fragments to one, several, or all active sites, with control over the distribution by ratio
 - Dock guest molecules into finite cages, including mixed-guest systems and capacity checks
 - Place guests at their lowest-energy sites, scored with DFT-D4 dispersion
@@ -92,6 +93,30 @@ isomers = cage.enumerate_isomers(output_path="isomers")
 Optimise (or lower `scale_multiplier`) before `functionalise()`: STK places
 bulky nodes away from their linkers, and `functionalise()` warns when the
 building blocks are not bonded.
+
+### Vertex names
+
+Each vertex (node) reads its linkers clockwise from the pore centre: 1 if
+the group is next to it on the left, 4 if on the right, 0 otherwise. The
+vertex name is unique for each isomer and converts back to the site indices:
+
+```python
+scheme = cage.vertex_scheme()
+print(scheme.name([0, 4, 9, 13, 16, 22]))     # 000-100-141-401
+print(scheme.resolve("000-100-141-401"))      # [0, 4, 9, 13, 16, 22]
+
+by_vertex = cage.enumerate_isomers(output_path="by_vertex", naming="vertex", limit=3)
+```
+
+Every isomer file records both names, the vertex labels, and which linkers
+meet at each vertex (`info["vertex_linkers"]`, e.g. `"0:0,1,2 1:0,3,4 ..."`).
+From the command line, `cage-vertex-name` converts isomer files or names
+either way:
+
+```bash
+cage-vertex-name isomers/0-4-9-13-16-22.xyz       # writes isomers/000-100-141-401.xyz
+cage-vertex-name --ref isomers/0-4-8-12-16-20.xyz 000-100-141-401   # prints 0-4-9-13-16-22
+```
 
 ### Attach functional groups
 

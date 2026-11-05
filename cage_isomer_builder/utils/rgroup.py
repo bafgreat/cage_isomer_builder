@@ -70,9 +70,7 @@ import numpy as np
 from numba import njit
 
 
-# ---------------------------------------------------------------------------
 # Slot layout
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SlotLayout:
@@ -250,9 +248,7 @@ def as_layout(layout, n_slots=None):
     return SlotLayout.uniform(n_slots // F, F)
 
 
-# ---------------------------------------------------------------------------
 # Specification
-# ---------------------------------------------------------------------------
 
 def _split_groups(pattern):
     """
@@ -459,9 +455,7 @@ def make_spec(layout, fg_per_linker=None, groups="AB", linker_patterns=None):
     return RGroupSpec(labels, tuple(patterns), tuple(names), tuple(counts), tuple(types), layout)
 
 
-# ---------------------------------------------------------------------------
 # Symmetry group
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SlotGroup:
@@ -602,9 +596,7 @@ def _group_and_layout(transformation_library, n_slots, fg_per_linker):
     return group, group.layout
 
 
-# ---------------------------------------------------------------------------
 # Counting
-# ---------------------------------------------------------------------------
 
 def _linker_cycles(perm, linker_perm, layout):
     """
@@ -777,9 +769,7 @@ def count_rgroup_isomers(transformation_library, n_slots, fg_per_linker=4,
     return n_unique
 
 
-# ---------------------------------------------------------------------------
 # Enumeration
-# ---------------------------------------------------------------------------
 
 def _local_arrangements(comp, fg_per_linker):
     """All distinct ways to place one pattern on a linker's slots, sorted.
@@ -1082,9 +1072,7 @@ def enumerate_rgroup_isomers(transformation_library, n_slots, fg_per_linker=4,
     return isomers
 
 
-# ---------------------------------------------------------------------------
 # Output
-# ---------------------------------------------------------------------------
 
 def build_rgroup_isomer_atoms(cage, fg_anchors, isomer, fg_anchor_indices,
                               fg_anchor_h_positions=None):

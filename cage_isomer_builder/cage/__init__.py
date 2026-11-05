@@ -1,3 +1,4 @@
+"""Cage builders: the base class and one builder per topology."""
 from cage_isomer_builder.cage.base import (
     CageBuilder,
     CageStatistics,

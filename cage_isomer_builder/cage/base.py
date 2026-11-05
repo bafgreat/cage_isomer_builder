@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+The cage builder base class: building a cage with STK or loading a
+structure, optimising it, marking its functional-group sites, counting
+and enumerating isomers, and computing descriptors.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
@@ -25,6 +30,7 @@ from stk._internal.topology_graphs.edge import Edge
 
 from cage_isomer_builder.utils import (
     distributions, ensemble, features, flexibility, pointgroup, rgroup, symmetry,
+    vertex_codes,
 )
 from cage_isomer_builder.utils.functionalise import full_functionalisation
 from cage_isomer_builder.utils.geometry import bonded_pairs
@@ -88,10 +94,12 @@ def dummies_to_placeholder(smiles: str) -> str:
     """
     return _DUMMY_RE.sub("[Fr]", smiles)
 
+
 # Noble-gas symbols used as geometry/orientation markers in MOF node files.
 # They are stripped from building blocks before STK construction so they
 # don't appear in cage output or bias the centroid calculation.
 _NOBLE_GAS_SYMBOLS = frozenset({'He', 'Ne', 'Ar', 'Kr', 'Xe', 'Rn'})
+
 
 def _metal_symbols() -> frozenset:
     """mofstructure's metal symbols without ``X``: its list includes the
@@ -128,14 +136,15 @@ def make_dummy_factory() -> stk.SmartsFunctionalGroupFactory:
         deleters=(0,),
     )
 
+
 def find_unique_building_units(list_of_connected_components,
                                bonds_to_break,
                                ase_atom,
                                porphyrin_checker,
                                all_regions):
     """
-    A function adapted from mofstructure that deconstructs a MOF/cage into
-    its constituent building units (metal SBUs vs. organic linkers).
+    Split a MOF or cage into its building units, metal SBUs and organic
+    linkers (adapted from mofstructure).
 
     Parameters
     ----------
@@ -172,13 +181,11 @@ def find_unique_building_units(list_of_connected_components,
     mof_metal = []
     mof_linker = []
     building_unit_regions = {}
-    for idx, key in enumerate(all_regions.keys()):
-        frag = list(all_regions.keys())[idx]
-        components = list_of_connected_components[all_regions[frag][0]]
-        all_breaking_point = sum(bonds_to_break, [])
+    all_breaking_point = sum(bonds_to_break, [])
+    for idx, key in enumerate(all_regions):
+        components = list_of_connected_components[all_regions[key][0]]
         point_of_extension = [i for i in all_breaking_point if i in components]
-        mapped_indices = dict(
-            [(i, j) for i, j in zip(components, range(len(components)))])
+        mapped_indices = {i: j for j, i in enumerate(components)}
         molecule_to_write = ase_atom[components]
         molecule_to_write.info['point_of_extension'] = [
             mapped_indices[i] for i in point_of_extension]
@@ -195,6 +202,7 @@ def find_unique_building_units(list_of_connected_components,
             mof_linker.append(molecule_to_write)
         building_unit_regions[idx] = molecule_to_write.info['atom_indices_mapping']
     return mof_metal, mof_linker, building_unit_regions
+
 
 def find_linkers(ase_atom):
     """
@@ -263,7 +271,7 @@ def get_sbus_indices(ase_atom):
     -------
     linker_atom_indices : list of list of int
         Atom indices per organic linker.
-    metal_atom_indicces : list of int
+    metal_atom_indices : list of int
         Flat list of atom indices belonging to metal nodes.
 
     Examples
@@ -289,8 +297,9 @@ def get_node_centers(ase_atom, metal_atom_indices):
     CoM per component. This works for both single-atom nodes (each atom
     is its own component) and multi-atom clusters (e.g. Zr6).
 
-    The flat metal_atom_indices list from get_sbus_indices is used directly
-    so CH3 groups on the node are correctly assigned to the node cluster.
+    ``metal_atom_indices`` is every atom outside the linkers (from
+    :func:`get_sbus_indices`), so groups bonded to a node, such as capping
+    methyls, are part of its cluster.
 
     Parameters
     ----------
@@ -1089,9 +1098,8 @@ def _bipartition(topology_cls):
             tuple(v for v in range(n) if colour[v] == 1))
 
 
-# ============================================================================
-#  Custom STK topology graphs
-# ============================================================================
+# Custom STK topology graphs
+
 
 class _TwoPlusThree(Cage):
     """Custom STK topology for Tri2Di3 (2 triamine nodes + 3 ditopic linkers)."""
@@ -1148,9 +1156,8 @@ class _ThreePlusSix(Cage):
     _num_window_types = 2
 
 
-# ============================================================================
-#  Abstract base class
-# ============================================================================
+# Abstract base class
+
 
 class CageBuilder(ABC):
     """
@@ -1279,9 +1286,7 @@ class CageBuilder(ABC):
             Deprecated aliases of ``linker`` and ``node``.
         """
 
-        # ------------------------------------------------------------------
         # Input normalization
-        # ------------------------------------------------------------------
         linker_input = linker if linker is not None else linker_smiles
         node_input = node if node is not None else node_smiles
 
@@ -1331,9 +1336,7 @@ class CageBuilder(ABC):
         self._linker_atom_indices = None
         self._node_centers = None
 
-    # ------------------------------------------------------------------
-    #  Subclass interface
-    # ------------------------------------------------------------------
+    # Subclass interface
 
     def _build_stk_topology(
         self,
@@ -1379,7 +1382,6 @@ class CageBuilder(ABC):
                 distance_threshold=self.distance_threshold,
             )
         return self._stk_topology_cls(**kwargs)
-
 
     def _get_transformation_library(self, fg_anchors: Atoms):
         """
@@ -1489,10 +1491,7 @@ class CageBuilder(ABC):
             "calling enumerate_isomers()."
         )
 
-
-    # ------------------------------------------------------------------
-    #  Build
-    # ------------------------------------------------------------------
+    # Build
 
     def _make_node_bb(self) -> stk.BuildingBlock:
         """
@@ -1521,7 +1520,6 @@ class CageBuilder(ABC):
             role="node",
         )
 
-
     def _make_linker_bb(self) -> stk.BuildingBlock:
         """
         Construct the linker building block.
@@ -1548,7 +1546,6 @@ class CageBuilder(ABC):
             allow_single_atom=False,
             role="linker",
         )
-
 
     def _expand_cage_rigid(self) -> None:
         """
@@ -1640,7 +1637,6 @@ class CageBuilder(ABC):
             self._expand_cage_rigid()
 
         return self._stk_cage
-
 
     def optimise(
         self,
@@ -1813,13 +1809,15 @@ class CageBuilder(ABC):
         if include_charges and charges is not None:
             optimised.set_initial_charges(charges)
 
+        # Atom order is unchanged, so the vertex map of functionalise() still holds.
+        if self._ase_cage is not None:
+            for key in ("linker_sites", "vertex_linkers"):
+                if key in self._ase_cage.info:
+                    optimised.info[key] = self._ase_cage.info[key]
         self._ase_cage = optimised
         return optimised
 
-
-    # ------------------------------------------------------------------
-    #  Load existing structure
-    # ------------------------------------------------------------------
+    # Load existing structure
 
     @classmethod
     def load_from_file(cls, path: str, primitive: bool = False,
@@ -1864,9 +1862,7 @@ class CageBuilder(ABC):
         instance._ase_cage = atoms
         return instance
 
-    # ------------------------------------------------------------------
-    #  Conversion
-    # ------------------------------------------------------------------
+    # Conversion
 
     def to_ase(self, hydrogens: bool = False) -> Atoms:
         """
@@ -1964,9 +1960,7 @@ class CageBuilder(ABC):
         """
         return ase_2_pybel(self.to_ase()).write('smi').strip()
 
-    # ------------------------------------------------------------------
-    #  Functionalisation
-    # ------------------------------------------------------------------
+    # Functionalisation
 
     def _classify_atoms_by_bb(self, ase_cage):
         """
@@ -2128,8 +2122,40 @@ class CageBuilder(ABC):
                               linker_types, type_names)
         self._check_assembly()
         self._ase_cage = functionalised
+        self._record_vertex_map()
 
         return self._fg_anchors, self._fg_anchor_indices
+
+    def _record_vertex_map(self) -> None:
+        """
+        Store which linkers meet at each vertex in the structure's ``info``, so
+        every isomer file made from it carries the map.
+
+        Linkers are numbered as in the slot layout (linker ``L`` owns block
+        ``L`` of the site numbers in an isomer's name) and vertices as in
+        :meth:`building_blocks`. ``info["vertex_linkers"]`` reads e.g.
+        ``"0:0,1,2 1:0,3,4"`` (vertex 0 joins linkers 0, 1 and 2) and
+        ``info["linker_sites"]`` e.g. ``"0:0-3 1:4-7"`` (linker 1 owns sites
+        4 to 7). Vertices bonded to no linker with sites are left out; a
+        structure without metal nodes gets no ``vertex_linkers``.
+        """
+        layout = self._layout
+        self._ase_cage.info["linker_sites"] = " ".join(
+            f"{L}:{start}-{start + size - 1}"
+            for L, (start, size) in enumerate(zip(layout.offsets, layout.sizes)))
+        self._ase_cage.info.pop("vertex_linkers", None)
+        linkers, nodes = self.building_blocks()
+        if not nodes:
+            return
+        adjacency = self.adjacency()
+        node_of = {a: n for n, g in enumerate(nodes) for a in g}
+        vertex_linkers = {n: [] for n in range(len(nodes))}
+        for L, k in enumerate(self._slot_linkers):
+            for n in sorted({node_of[b] for a in linkers[k] for b in adjacency[a]
+                             if b in node_of}):
+                vertex_linkers[n].append(L)
+        self._ase_cage.info["vertex_linkers"] = " ".join(
+            f"{n}:{','.join(map(str, ls))}" for n, ls in vertex_linkers.items() if ls)
 
     def _set_slot_layout(self, atoms, anchor_indices, h_positions, linker_types, type_names):
         """
@@ -2187,15 +2213,14 @@ class CageBuilder(ABC):
             self.functionalise()
         return self._layout
 
-    # ------------------------------------------------------------------
-    #  Isomer enumeration
-    # ------------------------------------------------------------------
+    # Isomer enumeration
 
     def enumerate_isomers(
         self,
         output_path: str = None,
         generate_files: bool = True,
         limit: int = None,
+        naming: str = "sites",
     ) -> list:
         """
         Enumerate the symmetry-unique isomers with one group on every linker.
@@ -2214,6 +2239,14 @@ class CageBuilder(ABC):
             Stop after this many isomers. Canonical representatives occur about
             once per |symmetry group| raw placements, so a modest limit is fast even
             when the full enumeration is not.
+        naming : {"sites", "vertex"}, default "sites"
+            File names: the active site indices (``0-4-9-13-16-22.xyz``) or
+            the vertex name (``000-100-141-401.xyz``, see
+            :meth:`vertex_scheme`). Whenever the cage has vertex codes, every
+            file records both names (``info["isomer"]`` and
+            ``info["vertex_name"]``) and the environment labels
+            (``info["vertex_labels"]``, e.g. ``000-100-114-140``), whichever
+            naming is used.
 
         Returns
         -------
@@ -2234,9 +2267,33 @@ class CageBuilder(ABC):
         >>> isomers = cage.enumerate_isomers(output_path=folder, limit=3)
         >>> isomers[0], sorted(os.listdir(folder))[0]
         ([0, 4, 8, 12, 16, 20], '0-4-8-12-16-20.xyz')
+        >>> from cage_isomer_builder.utils.sites import read_isomer
+        >>> info = read_isomer(os.path.join(folder, "0-4-8-12-16-20.xyz")).info
+        >>> info["vertex_linkers"]      # vertex 2 joins linkers 1, 3 and 5
+        '0:0,1,2 1:0,3,4 2:1,3,5 3:2,4,5'
+        >>> info["linker_sites"]        # linker 1 owns sites 4 to 7
+        '0:0-3 1:4-7 2:8-11 3:12-15 4:16-19 5:20-23'
+        >>> info["vertex_name"], info["vertex_labels"]
+        ('000-100-110-111', '000-100-110-111')
+        >>> by_vertex = tempfile.mkdtemp()
+        >>> _ = cage.enumerate_isomers(output_path=by_vertex, limit=3, naming="vertex")
+        >>> name = sorted(os.listdir(by_vertex))[0]
+        >>> name, read_isomer(os.path.join(by_vertex, name)).info["isomer"]
+        ('000-100-110-111.xyz', '0-4-8-12-16-20')
         """
+        if naming not in ("sites", "vertex"):
+            raise ValueError(f"naming={naming!r}; use 'sites' or 'vertex'.")
         if self._fg_anchors is None:
             self.functionalise()
+
+        scheme = None
+        if naming == "vertex":
+            scheme = self.vertex_scheme()          # raises if the cage has no vertex codes
+        elif generate_files and output_path:
+            try:
+                scheme = self.vertex_scheme()
+            except ValueError:
+                scheme = None                      # e.g. a MOF: files keep the site names only
 
         if generate_files and output_path:
             os.makedirs(output_path, exist_ok=True)
@@ -2262,6 +2319,14 @@ class CageBuilder(ABC):
             unique_isomers.append(descriptor)
 
             if generate_files and output_path:
+                name, info = None, None
+                if scheme is not None:
+                    vertex_name = scheme.name(descriptor)
+                    info = {"vertex_name": vertex_name,
+                            "vertex_labels": "-".join(scheme.labels(descriptor)),
+                            **scheme.to_info()}
+                    if naming == "vertex":
+                        name = vertex_name
                 generate_isomer_structure_file(
                     self._ase_cage,
                     self._fg_anchors,
@@ -2269,9 +2334,79 @@ class CageBuilder(ABC):
                     self._fg_anchor_indices,
                     output_path,
                     fg_anchor_h_positions=self._fg_anchor_h_positions,
+                    name=name,
+                    info=info,
                 )
 
         return unique_isomers
+
+    def vertex_scheme(self) -> "vertex_codes.VertexScheme":
+        """
+        Vertex codes of this cage: what each vertex (node) sees of the groups on
+        its linkers, for isomers with at most one group per linker.
+
+        Seen from the pore centre with the vertex at the bottom of a linker,
+        the linker reads 1 if its group is next to this vertex on the left, 4
+        if on the right, and 0 otherwise. A vertex's code lists its linkers
+        clockwise as seen from the pore centre, starting at the lowest-numbered
+        linker (the vertex and linker numbers of ``info["vertex_linkers"]``).
+        The vertex name of an isomer, its codes in vertex order joined by
+        ``-``, is unique and converts back to the site indices;
+        ``labels`` gives the environment of each vertex whatever linker its
+        code starts at (see :mod:`cage_isomer_builder.utils.vertex_codes`).
+
+        Raises
+        ------
+        ValueError
+            For a periodic structure, or if a linker does not join two vertices
+            with one site on each side at each end (as in a para-phenylene).
+
+        Examples
+        --------
+        >>> from cage_isomer_builder import example_data
+        >>> from cage_isomer_builder.cage import Tri4Di6CageBuilder
+        >>> cage = Tri4Di6CageBuilder(node=example_data.path("uio66_tri_node"),
+        ...                           linker=example_data.path("bdc"), scale_multiplier=0.225)
+        >>> _ = cage.build()
+        >>> _ = cage.optimise(include_charges=False, logfile=None)   # the UiO-66 tetrahedral cage
+        >>> scheme = cage.vertex_scheme()
+        >>> scheme.name([0, 4, 9, 13, 16, 22]), scheme.labels([0, 4, 9, 13, 16, 22])
+        ('000-100-141-401', ['000', '100', '114', '140'])
+        >>> scheme.resolve("000-100-141-401"), scheme.resolve("0-4-9-13-16-22")
+        ([0, 4, 9, 13, 16, 22], [0, 4, 9, 13, 16, 22])
+        """
+        if self._fg_anchors is None:
+            self.functionalise()
+        centre = self.pore_centre()
+        if centre is None:
+            raise ValueError("vertex codes need a finite cage with a pore centre.")
+        atoms = self.to_ase()
+        pos = atoms.positions
+        linkers, nodes = self.building_blocks()
+        adjacency = self.adjacency()
+        node_of = {a: n for n, g in enumerate(nodes) for a in g}
+
+        linker_vertices, linker_centres = [], []
+        for L, k in enumerate(self._slot_linkers):
+            vertices = sorted({node_of[b] for a in linkers[k] for b in adjacency[a] if b in node_of})
+            if len(vertices) != 2:
+                raise ValueError(f"linker {L} joins {len(vertices)} vertices; vertex codes "
+                                 "need every linker to join two.")
+            linker_vertices.append(tuple(vertices))
+            heavy = [a for a in linkers[k] if atoms.numbers[a] > 1]
+            linker_centres.append(pos[heavy].mean(axis=0))
+
+        vertex_centres = []
+        for g in nodes:
+            metals = [a for a in g if features.is_metal(atoms.numbers[a])]
+            vertex_centres.append(pos[metals or g].mean(axis=0))
+
+        layout = self._layout
+        linker_sites = [range(start, start + size)
+                        for start, size in zip(layout.offsets, layout.sizes)]
+        return vertex_codes.scheme_from_geometry(
+            pos[self._fg_anchor_indices], linker_sites, linker_vertices,
+            linker_centres, vertex_centres, centre)
 
     def count_unique_isomers_burnside(self, active_per_linker: int = 1) -> int:
         """
@@ -2315,9 +2450,7 @@ class CageBuilder(ABC):
             )
         return self.count_rgroup_isomers(groups="A" * active_per_linker)
 
-    # ------------------------------------------------------------------
-    #  Several distinct groups at once (R1, R2, ...)
-    # ------------------------------------------------------------------
+    # Several distinct groups at once (R1, R2, ...)
 
     def _check_slot_layout(self) -> None:
         """
@@ -2488,9 +2621,7 @@ class CageBuilder(ABC):
                 )
         return isomers
 
-    # ------------------------------------------------------------------
-    #  Statistics
-    # ------------------------------------------------------------------
+    # Statistics
 
     def get_statistics(self, n_kde_bins: int = 200, threshold: float = 0.5,
                        max_distance: Optional[float] = None) -> CageStatistics:
@@ -2584,9 +2715,7 @@ class CageBuilder(ABC):
             other_pairs=other,
         )
 
-    # ------------------------------------------------------------------
-    #  Structure checks and building blocks
-    # ------------------------------------------------------------------
+    # Structure checks and building blocks
 
     def _check_assembly(self, factor: float = 1.6) -> None:
         """
@@ -2759,9 +2888,7 @@ class CageBuilder(ABC):
             heavy = [i for i in range(len(atoms)) if atoms.numbers[i] > 1]
             return atoms.positions[heavy].mean(axis=0)
 
-    # ------------------------------------------------------------------
-    #  Feature sites and descriptors
-    # ------------------------------------------------------------------
+    # Feature sites and descriptors
 
     def slot_features(self, threshold: float = 0.5, centre=None) -> "features.FeatureSet":
         """
@@ -3018,9 +3145,7 @@ class CageBuilder(ABC):
                                             self._fg_anchor_indices, factors,
                                             self.pore_centre())
 
-    # ------------------------------------------------------------------
-    #  Defects
-    # ------------------------------------------------------------------
+    # Defects
 
     def _with_vacancies(self, groups, linker_patterns, n_missing):
         """
@@ -3268,14 +3393,15 @@ class CageBuilder(ABC):
         >>> removed, len(cage.to_ase()) - len(atoms)      # one 86-atom Zr6 node removed
         ((0,), 86)
         """
+        from cage_isomer_builder.utils.sites import write_isomer
+
         group, nodes = self._node_group()
         n = len(nodes)
+        if not 0 < n_missing_nodes <= n:
+            raise ValueError(f"n_missing_nodes must be between 1 and {n}.")
         patterns = {k: v for k, v in {"D": n_missing_nodes, "": n - n_missing_nodes}.items() if v}
         isomers = rgroup.enumerate_rgroup_isomers(group, n, 1, linker_patterns=patterns)
-        base = self._ase_cage.copy()
-        for slot, i_atom in enumerate(self._fg_anchor_indices):
-            from cage_isomer_builder.utils.sites import clear_site
-            clear_site(base, i_atom, "H", self._fg_anchor_h_positions[slot])
+        base = self.to_ase(hydrogens=True)
         if generate_files and output_path:
             os.makedirs(output_path, exist_ok=True)
         out = []
@@ -3285,22 +3411,20 @@ class CageBuilder(ABC):
             atoms = base[[i for i in range(len(base)) if i not in drop]]
             atoms.info["missing_nodes"] = " ".join(map(str, removed))
             if generate_files and output_path:
-                from cage_isomer_builder.utils.sites import write_isomer
                 write_isomer(os.path.join(output_path,
                                           "nodes-" + "-".join(map(str, removed)) + ".xyz"), atoms)
             out.append((removed, atoms))
         return out
 
-    # ------------------------------------------------------------------
-    #  Save
-    # ------------------------------------------------------------------
+    # Save
 
     def save(self, path: str) -> None:
         """
         Save the cage structure to file.
 
-        If the cage was built with STK, STK's writer is used for PDB files.
-        Otherwise, the ASE structure is written using ``ase.io.write``.
+        A PDB file of a built cage is written by STK, with the bonds of the
+        construction; every other format by ``ase.io.write``. Both hold the
+        current geometry, so the optimised one after :meth:`optimise`.
 
         Parameters
         ----------
@@ -3323,20 +3447,29 @@ class CageBuilder(ABC):
         path = str(path)
 
         if self._stk_cage is not None and path.lower().endswith(".pdb"):
-            stk.PdbWriter().write(molecule=self._stk_cage, path=path)
+            stk.PdbWriter().write(molecule=self._current_stk_cage(), path=path)
             return
 
         ase_cage = self.to_ase()
         write(path, ase_cage)
 
-    # ------------------------------------------------------------------
-    #  Writers
-    # ------------------------------------------------------------------
+    # Writers
+
+    def _current_stk_cage(self) -> stk.ConstructedMolecule:
+        """
+        The STK cage with the current geometry. ``optimise()`` replaces the
+        ASE structure but not the STK molecule, which keeps the geometry of
+        the construction. R-site markers are written as their original H.
+        """
+        current = self.to_ase(hydrogens=True)
+        if len(current) != self._stk_cage.get_num_atoms():
+            return self._stk_cage
+        return self._stk_cage.with_position_matrix(current.positions)
 
     def write_ams_run(self, path: Union[str, Path]) -> None:
         """
         Write an AMS geometry-optimisation run script for this cage, with Cartesian
-        coordinates, bond orders from the STK bond matrix, lattice vectors for a
+        coordinates (the optimised ones after :meth:`optimise`), bond orders from the STK bond matrix, lattice vectors for a
         periodic structure, and an ``Engine DFTB`` block.
 
         Parameters
@@ -3364,10 +3497,10 @@ class CageBuilder(ABC):
         """
         if self._stk_cage is None:
             raise RuntimeError(
-                "write_run() requires the STK cage. Call build() first."
+                "write_ams_run() requires the STK cage. Call build() first."
             )
 
-        atoms, bond_matrix = stk_2_ase_atoms(self._stk_cage)
+        atoms, bond_matrix = stk_2_ase_atoms(self._current_stk_cage())
         write_run(str(path), atoms, bond_matrix)
 
     def write_gulp_gin(
@@ -3376,7 +3509,7 @@ class CageBuilder(ABC):
         """
         Write a GULP input file for this cage, with UFF4MOF atom types from
         ``gulp_setup`` (as used by ``optimise(method="UFF4MOF")``), Cartesian
-        coordinates, ``connect`` records from the STK bond matrix and a ``uff4mof``
+        coordinates (the optimised ones after :meth:`optimise`), ``connect`` records from the STK bond matrix and a ``uff4mof``
         library block.
 
         Parameters
@@ -3416,11 +3549,11 @@ class CageBuilder(ABC):
         """
         if self._stk_cage is None:
             raise RuntimeError(
-                "write_gulp_run() requires the STK cage. Call build() first."
+                "write_gulp_gin() requires the STK cage. Call build() first."
             )
 
         from gulp_setup.mmanalysis import analyze_mm, write_gin
 
-        atoms, bond_matrix = stk_2_ase_atoms(self._stk_cage)
+        atoms, bond_matrix = stk_2_ase_atoms(self._current_stk_cage())
         _, mmtypes = analyze_mm(atoms, bond_order=bond_matrix)
         write_gin(str(path), atoms, bond_matrix, mmtypes, lattice=lattice, mechanical=mechanical)

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+"""
+Structure conversion and writers: STK to ASE with bond orders, isomer
+files, AMS run scripts and host-guest complexes.
+"""
 __author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
 __status__ = "production"
 
-from ase import Atoms
 import numpy as np
+from ase import Atoms
+
 
 def stk_2_ase_atoms(stk_atoms,
                     pbc=False
@@ -73,18 +78,11 @@ def write_to_xyz(filename, ase_atoms):
     '3'
     """
 
-    sym = ase_atoms.symbols
-    pos = ase_atoms.positions
-    lines = ['%i\n'%len(ase_atoms), '\n']
-    for iline in range(len(ase_atoms)):
-        lines += ['{0:<3}{1:15.8f}{2:15.8f}{3:15.8f}\n'.format(sym[iline],
-                                                  pos[iline][0],
-                                                  pos[iline][1],
-                                                  pos[iline][2])
-                  ]
-    file = open(filename, 'w')
-    file.writelines(lines)
-    file.close()
+    lines = [f"{len(ase_atoms)}\n", "\n"]
+    for symbol, (x, y, z) in zip(ase_atoms.symbols, ase_atoms.positions):
+        lines.append(f"{symbol:<3}{x:15.8f}{y:15.8f}{z:15.8f}\n")
+    with open(filename, "w") as fileobj:
+        fileobj.writelines(lines)
 
 
 def build_isomer_atoms(cage,
@@ -150,12 +148,17 @@ def generate_isomer_structure_file(cage,
                                    fg_anchor_indices,
                                    output_path,
                                    fg_anchor_h_positions=None,
+                                   name=None,
+                                   info=None,
                                    ):
     """
     Write one single-group isomer (see :func:`build_isomer_atoms`) to
     ``<output_path>/<slot>-<slot>-....xyz`` as extended XYZ, with its sites
     listed in ``info["r_sites"]`` (see
     :func:`cage_isomer_builder.utils.sites.write_isomer`).
+
+    ``name`` replaces the default file name (the site indices joined by
+    ``-``), and ``info`` adds entries to the file's ``info``.
 
     Returns
     -------
@@ -178,12 +181,19 @@ def generate_isomer_structure_file(cage,
     ...                                       tempfile.mkdtemp(), h_positions)
     >>> path.endswith("0-3.xyz"), read_isomer(path).info["r_sites"]
     (True, {6: 'R1', 9: 'R1'})
+    >>> path = generate_isomer_structure_file(benzene, benzene[slots], [0, 3], slots,
+    ...                                       tempfile.mkdtemp(), h_positions,
+    ...                                       name="para", info={"note": "test"})
+    >>> path.endswith("para.xyz"), read_isomer(path).info["isomer"], read_isomer(path).info["note"]
+    (True, '0-3', 'test')
     """
     from cage_isomer_builder.utils.sites import write_isomer
 
     isomer = build_isomer_atoms(cage, fg_anchors, isomer_descriptor,
                                 fg_anchor_indices, fg_anchor_h_positions)
-    name = '-'.join(str(i) for i in isomer_descriptor)
+    isomer.info.update(info or {})
+    if name is None:
+        name = '-'.join(str(i) for i in isomer_descriptor)
     return write_isomer("{}/{}.xyz".format(output_path, name), isomer)
 
 
@@ -212,12 +222,14 @@ def write_run(path: str, atoms: Atoms, bonds: np.ndarray) -> None:
     True
     """
     path = str(path)
+    pbc = atoms.get_pbc()
     with open(path, "w") as fileobj:
         fileobj.write("#!/bin/sh\n\n")
         fileobj.write('"$AMSBIN/ams" << eor\n\n')
         fileobj.write("Task GeometryOptimization\n")
         fileobj.write("GeometryOptimization\n")
-        fileobj.write("   OptimizeLattice Yes\n")
+        if np.any(pbc):
+            fileobj.write("   OptimizeLattice Yes\n")
         fileobj.write("End\n")
         fileobj.write("System\n")
         fileobj.write("Atoms\n")
@@ -227,23 +239,14 @@ def write_run(path: str, atoms: Atoms, bonds: np.ndarray) -> None:
         fileobj.write("\n")
         fileobj.write("End\n")
 
-        pbc = atoms.get_pbc()
         if np.any(pbc):
+            # A slab (no periodicity along c) has two lattice vectors.
             fileobj.write("Lattice\n")
-            cell = atoms.get_cell().tolist()
-
-            # Write only lattice vectors needed. If your z is non-periodic, omit c vector.
-            if not pbc[2]:
-                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*cell[0]))
-                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*cell[1]))
-            else:
-                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*cell[0]))
-                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*cell[1]))
-                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*cell[2]))
+            for vector in atoms.get_cell().tolist()[:3 if pbc[2] else 2]:
+                fileobj.write("{0:.6f} {1:.6f} {2:.6f}\n".format(*vector))
             fileobj.write("End\n")
 
         fileobj.write("BondOrders\n")
-        # bonds is NxN matrix
         for (i0, i1), b in np.ndenumerate(bonds):
             if i0 < i1 and b > 0.0:
                 fileobj.write(("{0:<4} {1:<4} {2:.3f}\n").format(i0 + 1, i1 + 1, float(b)))
@@ -253,7 +256,6 @@ def write_run(path: str, atoms: Atoms, bonds: np.ndarray) -> None:
         fileobj.write("Engine DFTB\n")
         fileobj.write("EndEngine\n")
         fileobj.write("eor\n")
-
 
 
 def write_host_guest_complex(complex_, path, lattice="conv", mechanical=False):

@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
-__status__ = "production"
-
 """
 UFF4MOF parameter database and force-field combining-rule math.
 
@@ -10,8 +7,9 @@ Rappe et al., J. Am. Chem. Soc. 1992, 114, 10024, using the UFF4MOF
 parameter extensions from Addicoat et al., J. Chem. Theory Comput. 2014,
 10, 880 and Coupry et al., J. Chem. Theory Comput. 2016, both bundled in
 ``cage_isomer_builder/__data__/uff4mof_data.py``.
-
 """
+__author__ = "Dr. Dinga Wonanke, Dr. Maryam Nurhuda, Dr. Matthew Addicoat"
+__status__ = "production"
 
 import math
 from dataclasses import dataclass
@@ -48,13 +46,13 @@ class UFFAtomParams:
     r1: float          # ri (Angstrom): valence bond radius
     theta0_deg: float  # phi (degrees): equilibrium valence angle
     x1: float          # xi (Angstrom): van der Waals distance parameter
-    D1: float           # di (kcal/mol): van der Waals well depth
-    zeta: float          # nonbond scaling exponent (unused here)
-    Z1: float            # zmm (e): effective charge (bond + angle force constants)
-    V1: float            # vsp3 (kcal/mol): sp3 torsion barrier
-    U1: float            # vsp2 (kcal/mol): sp2 torsion barrier
-    chi: float          # GMP electronegativity
-    hard: float          # QEq hardness (unused: no charge equilibration)
+    D1: float          # di (kcal/mol): van der Waals well depth
+    zeta: float        # nonbond scaling exponent (unused here)
+    Z1: float          # zmm (e): effective charge (bond + angle force constants)
+    V1: float          # vsp3 (kcal/mol): sp3 torsion barrier
+    U1: float          # vsp2 (kcal/mol): sp2 torsion barrier
+    chi: float         # GMP electronegativity
+    hard: float        # QEq hardness (unused: no charge equilibration)
 
 
 def load_uff4mof_db(include_derived: bool = True) -> dict[str, UFFAtomParams]:
